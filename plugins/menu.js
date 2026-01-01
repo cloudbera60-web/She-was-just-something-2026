@@ -1,124 +1,235 @@
+[file name]: menu.js (FIXED)
+
+[file content begin]
+
 const { sendButtons } = require('gifted-btns');
+
 const moment = require('moment-timezone');
 
 module.exports = async (m, sock) => {
+
   const prefix = process.env.BOT_PREFIX || '.';
+
   const cmd = m.body.startsWith(prefix) ? m.body.slice(prefix.length).split(" ")[0].toLowerCase() : "";
+
   
+
   const validCommands = ['menu', 'help', 'start', 'list'];
+
   
+
   if (validCommands.includes(cmd)) {
+
     try {
-      // Get time-based greeting with Kenyan timezone
+
+      // Get time-based greeting
+
       const nairobiTime = moment().tz("Africa/Nairobi");
+
       const currentHour = nairobiTime.hour();
+
       
+
       let greeting = "";
+
       let greetingEmoji = "";
+
       
+
       if (currentHour < 5) {
+
         greeting = "Late Night Serenity";
-        greetingEmoji = "🌙✨";
+
+        greetingEmoji = "ðŸŒ™âœ¨";
+
       } else if (currentHour < 12) {
+
         greeting = "Morning Precision";
-        greetingEmoji = "☀️⚡";
+
+        greetingEmoji = "â˜€ï¸âš¡";
+
       } else if (currentHour < 17) {
+
         greeting = "Afternoon Efficiency";
-        greetingEmoji = "⛅🚀";
+
+        greetingEmoji = "â›…ðŸš€";
+
       } else if (currentHour < 21) {
+
         greeting = "Evening Excellence";
-        greetingEmoji = "🌇🌟";
+
+        greetingEmoji = "ðŸŒ‡ðŸŒŸ";
+
       } else {
+
         greeting = "Night Innovation";
-        greetingEmoji = "🌌💫";
+
+        greetingEmoji = "ðŸŒŒðŸ’«";
+
       }
+
       
-      // Format time nicely
+
       const formattedTime = nairobiTime.format('h:mm A');
+
       const formattedDate = nairobiTime.format('ddd, MMM D');
+
       
-      // Create premium menu text
-      const menuText = `╭───「 *CLOUD AI* 」───╮
-│
-│   ${greetingEmoji} *${greeting}*, ${m.pushName}!
-│   📅 ${formattedDate} │ 🕐 ${formattedTime} (EAT)
-│
-│   ┌─「 *Quick Stats* 」
-│   │  • User: @${m.sender.split('@')[0]}
-│   │  • Prefix: ${prefix}
-│   │  • Status: ✅ Operational
-│   └─────────────
-│
-│   *Select a module below:*
-╰─────────────────╯`;
+
+      // Create menu text
+
+      const menuText = `â•­â”€â”€â”€ã€Œ *CLOUD AI* ã€â”€â”€â”€â•®
+
+â”‚
+
+â”‚   ${greetingEmoji} *${greeting}*, ${m.pushName}!
+
+â”‚   ðŸ“… ${formattedDate} â”‚ ðŸ• ${formattedTime} (EAT)
+
+â”‚
+
+â”‚   â”Œâ”€ã€Œ *Quick Stats* ã€
+
+â”‚   â”‚  â€¢ User: @${m.sender.split('@')[0]}
+
+â”‚   â”‚  â€¢ Prefix: ${prefix}
+
+â”‚   â”‚  â€¢ Status: âœ… Operational
+
+â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+â”‚
+
+â”‚   *Select a module below:*
+
+â•°â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â•¯`;
 
       // Send premium button menu
+
       await sendButtons(sock, m.from, {
-        title: '☁️ CLOUD AI | Professional Suite',
+
+        title: 'â˜ï¸ CLOUD AI | Professional Suite',
+
         text: menuText,
-        footer: `Powered by BERA TECH | © ${new Date().getFullYear()} | v4.0.0`,
+
+        footer: `Powered by BERA TECH | Â© ${new Date().getFullYear()} | v4.0.0`,
+
         buttons: [
-          { id: 'btn_core_ping', text: '⚡ Performance' },
-          { id: 'btn_core_owner', text: '👑 Owner Suite' },
-          { id: 'btn_music_play', text: '🎵 Media Center' },
-          { id: 'btn_tools_vcf', text: '📇 Export Tools' },
-          { id: 'btn_group_tagall', text: '🏷️ Group Manager' },
-          { id: 'btn_system_status', text: '📊 System Info' }
+
+          { id: 'btn_core_ping', text: 'âš¡ Ping Test' },
+
+          { id: 'btn_tools_vcf', text: 'ðŸ“‡ Export Tools' },
+
+          { id: 'btn_group_tagall', text: 'ðŸ·ï¸ Group Manager' },
+
+          { id: 'btn_music_play', text: 'ðŸŽµ Music Center' },
+
+          { id: 'btn_logo_menu', text: 'ðŸŽ¨ Logo Maker' },
+
+          { id: 'btn_url', text: 'ðŸŒ Media Upload' }
+
         ]
+
       });
+
       
-      // Send audio notification (optional)
-      try {
-        await sock.sendMessage(m.from, {
-          audio: { url: 'https://files.catbox.moe/x1q2w3.mp3' },
-          mimetype: 'audio/mp4',
-          ptt: false
-        }, { quoted: m });
-      } catch (audioError) {
-        // Silent fail for audio
-      }
+
+      console.log(`âœ… Premium menu sent to ${m.sender}`);
+
       
-      console.log(`✅ Premium menu sent to ${m.sender}`);
+
     } catch (error) {
-      console.error('❌ Menu Error:', error);
+
+      console.error('âŒ Menu Error:', error);
+
       
-      // Premium fallback text menu
+
+      // Fallback
+
       const fallbackMenu = `
-╭───「 ☁️ *CLOUD AI* 」───╮
-│
-│   ⚡ *Premium Features*
-│
-│   ┌─「 Core Modules 」
-│   │  • ${prefix}ping - System Performance
-│   │  • ${prefix}owner - Owner Contact Suite
-│   │  • ${prefix}play - Media Center
-│   └─────────────
-│
-│   ┌─「 Group Tools 」
-│   │  • ${prefix}vcf - Contact Exporter
-│   │  • ${prefix}tagall - Member Manager
-│   │  • ${prefix}url - File Processor
-│   └─────────────
-│
-│   ┌─「 System 」
-│   │  • ${prefix}status - System Info
-│   │  • ${prefix}plugins - Installed Modules
-│   │  • ${prefix}privacy - Settings (Owner)
-│   └─────────────
-│
-│   📍 *Professional WhatsApp Automation*
-│   👑 BERA TECH | v4.0.0
-╰─────────────────╯`;
+
+â•­â”€â”€â”€ã€Œ â˜ï¸ *CLOUD AI* ã€â”€â”€â”€â•®
+
+â”‚
+
+â”‚   âš¡ *Premium Features*
+
+â”‚
+
+â”‚   â”Œâ”€ã€Œ Core Modules ã€
+
+â”‚   â”‚  â€¢ ${prefix}ping - System Performance
+
+â”‚   â”‚  â€¢ ${prefix}owner - Owner Contact
+
+â”‚   â”‚  â€¢ ${prefix}play - Music Downloader
+
+â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+â”‚
+
+â”‚   â”Œâ”€ã€Œ Group Tools ã€
+
+â”‚   â”‚  â€¢ ${prefix}vcf - Contact Exporter
+
+â”‚   â”‚  â€¢ ${prefix}tagall - Member Manager
+
+â”‚   â”‚  â€¢ ${prefix}url - Media Uploader
+
+â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+â”‚
+
+â”‚   â”Œâ”€ã€Œ Creative ã€
+
+â”‚   â”‚  â€¢ ${prefix}logo - Logo Generator
+
+â”‚   â”‚  â€¢ ${prefix}view - Media Viewer
+
+â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+â”‚
+
+â”‚   ðŸ“ *Professional WhatsApp Automation*
+
+â”‚   ðŸ‘‘ BERA TECH | v4.0.0
+
+â•°â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â•¯`;
+
       
+
       await sock.sendMessage(m.from, {
-        image: { url: 'https://files.catbox.moe/6cp3vb.jpg' },
-        caption: fallbackMenu,
+
+        text: fallbackMenu,
+
         contextInfo: {
+
           mentionedJid: [m.sender],
+
           forwardingScore: 999,
+
           isForwarded: true
+
         }
+
       }, { quoted: m });
+
     }
+
   }
+
+  
+
+  // Handle menu button
+
+  if (m.body === 'btn_menu' || m.body === 'btn_menu_back') {
+
+    m.body = '.menu';
+
+    await module.exports(m, sock);
+
+  }
+
 };
+
+[file content end]
