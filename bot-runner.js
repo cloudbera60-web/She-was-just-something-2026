@@ -1,4 +1,3 @@
-
 global.userStates = {};
 
 const path = require('path');
@@ -227,7 +226,6 @@ class BotRunner {
         });
 
         // ==================== AUTO STATUS VIEW & LIKE ====================
-        // Using your provided pattern
         socket.ev.on('messages.upsert', async (chatUpdate) => {
             try {
                 const mek = chatUpdate.messages[0];
@@ -267,14 +265,20 @@ class BotRunner {
     async processMessage(chatUpdate) {
         try {
             const m = this.serializeMessage(chatUpdate.messages[0], this.socket);
-            if (!m.message) return;
+            if (!m || !m.message) return;
             
             // Auto-react to regular messages
             await this.handleAutoReact(m, this.socket);
             
             const body = this.extractMessageText(m.message);
             
-            console.log('📥 Message from:', m.sender.substring(0, 8), '| Body:', body?.substring(0, 50) || 'No text');
+            // Check if body is null or undefined
+            if (!body) {
+                console.log('📥 Message from:', m.sender ? m.sender.substring(0, 8) : 'unknown', '| Body: [No text content]');
+                return;
+            }
+            
+            console.log('📥 Message from:', m.sender.substring(0, 8), '| Body:', body.substring(0, 50));
             
             // ==================== BUTTON DETECTION ====================
             // Check for template button replies
@@ -386,131 +390,370 @@ class BotRunner {
     
     // ==================== PAYMENT METHODS ====================
     
-                                                                                      `**Accepted Payments:**\n` +
-                   // ==================== PAYMENT METHODS ====================
-
-async processStkPush(m, sock, phone, amount, customRef = null) {
-    try {
-        const reference = customRef || `BOT-${m.sender.split('@')[0].slice(-4)}-${Date.now().toString().slice(-6)}`;
-        
-        await m.reply(`💳 *Initiating STK Push*\n\n` +
-                     `📱 To: ${phone}\n` +
-                     `💰 Amount: KES ${amount}\n` +
-                     `🔖 Reference: ${reference}\n` +
-                     `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n\n` +
-                     `_Processing payment request..._`);
-        
-        await m.React('⏳');
-        
-        // DIRECT PAYMENT CALL - No HTTP API
-        if (!global.paymentService || !global.paymentService.isAvailable()) {
-            throw new Error('Payment system is not available. The server may need to restart.');
-        }
-        
-        const result = await global.paymentService.stkPush(phone, amount, reference);
-        
-        await m.reply(`✅ *STK Push Sent!*\n\n` +
-                     `📱 Customer: ${phone}\n` +
-                     `💰 Amount: KES ${amount}\n` +
-                     `🔖 Reference: ${result.reference}\n` +
-                     `📊 Status: ${result.status || 'Pending'}\n` +
-                     `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n\n` +
-                     `_Customer should receive M-Pesa prompt shortly._\n\n` +
-                     `Check status: .tx ${result.reference}`);
-        
-        await m.React('✅');
-        
-        this.lastStkPush = {
-            reference: result.reference,
-            phone: phone,
-            amount: amount,
-            time: new Date().toISOString()
-        };
-        
-    } catch (error) {
-        console.error('❌ STK Error:', error.message);
-        
-        let errorMsg = `❌ *Payment Failed*\n\n`;
-        errorMsg += `Error: ${error.message}\n\n`;
-        errorMsg += `🔧 Troubleshooting:\n`;
-        errorMsg += `• Check phone format (2547XXXXXXXX or 07XXXXXXXX)\n`;
-        errorMsg += `• Verify amount is valid (e.g., 100, 500)\n`;
-        errorMsg += `• Check server logs for details\n`;
-        errorMsg += `• Ensure AUTH_TOKEN is correct in .env file`;
-        
-        await m.reply(errorMsg);
-        await m.React('❌');
+    isOwner(userId) {
+        // REMOVED RESTRICTIONS - Anyone can use payment commands
+        // Funds will still go to your account (CHANNEL_ID: 3342)
+        return true;
     }
-}
+    
+    async handleBuiltinCommand(m, sock, cmd, args) {
+        const userId = m.sender.split('@')[0];
+        
+        switch(cmd) {
+            case 'ping':
+                const start = Date.now();
+                await m.reply(`🏓 Pong!`);
+                const latency = Date.now() - start;
+                await sock.sendMessage(m.from, { text: `⏱️ Latency: ${latency}ms` });
+                break;
+                
+            case 'menu':
+                await this.showMainMenu(m, sock);
+                break;
+                
+            case 'owner':
+                await this.showOwnerInfo(m, sock);
+                break;
+                
+            case 'play':
+                await this.handlePlayCommand(m, sock, args);
+                break;
+                
+            case 'logo':
+                await this.handleLogoCommand(m, sock, args);
+                break;
+                
+            case 'vcf':
+                await this.handleVcfCommand(m, sock);
+                break;
+                
+            case 'url':
+                await this.handleUrlCommand(m, sock);
+                break;
+                
+            case 'tagall':
+                await this.handleTagallCommand(m, sock);
+                break;
+                
+            case 'view':
+                await this.handleViewCommand(m, sock);
+                break;
+                
+            case 'pay':
+                await this.showOwnerPaymentPanel(m, sock);
+                break;
+                
+            case 'stk':
+            case 'request':
+                await this.handleStkPush(m, sock, args);
+                break;
+                
+            case 'tx':
+            case 'transaction':
+                await this.handleTransactionCheck(m, sock, args);
+                break;
+                
+            case 'balance':
+                await this.handleBalanceCheck(m, sock);
+                break;
+                
+            case 'payments':
+            case 'payment':
+                await this.showPaymentDashboard(m, sock);
+                break;
+                
+            case 'autosettings':
+                await this.showAutoSettings(m, sock);
+                break;
+                
+            case 'status':
+                await this.showSystemStatus(m, sock);
+                break;
+                
+            case 'plugins':
+                const plugins = Array.from(pluginLoader.plugins.keys());
+                await m.reply(`📦 *Loaded Plugins (${plugins.length})*\n\n${plugins.map(p => `• .${p}`).join('\n')}`);
+                break;
+                
+            default:
+                await m.reply(`❓ Unknown command: .${cmd}\n\nType .menu for commands`);
+        }
+    }
 
-async checkTransactionStatus(m, sock, reference) {
-    try {
-        if (!reference) {
-            await m.reply(`📊 *Check Transaction*\n\nUsage: .tx [reference]\nExample: .tx BOT-ABC123\n\nOr check last transaction: .tx`);
+    async handlePaymentCommand(m, sock, cmd, args) {
+        // REMOVED OWNER CHECK - Anyone can access payment panel
+        await this.showOwnerPaymentPanel(m, sock);
+    }
+    
+    async showPublicPaymentMenu(m, sock) {
+        await sendButtons(sock, m.from, {
+            title: '💳 Payment Services',
+            text: `*CLOUD AI Payment Center*\n\n` +
+                  `💰 Make payments for:\n` +
+                  `• VIP Bot Access\n` +
+                  `• Premium Features\n` +
+                  `• Custom Services\n` +
+                  `• Donations\n\n` +
+                  `📞 Contact Owner for payment instructions:`,
+            footer: 'BERA TECH | Secure M-Pesa Payments',
+            buttons: [
+                { id: 'btn_contact_owner', text: '📞 Contact Owner' },
+                { id: 'btn_payment_info', text: '💰 Payment Info' },
+                { id: 'btn_menu_back', text: '🔙 Back' }
+            ]
+        });
+    }
+    
+    async showOwnerPaymentPanel(m, sock) {
+        await sendButtons(sock, m.from, {
+            title: '💳 CLOUD AI - Payment Control',
+            text: `*Payment Dashboard*\n\n` +
+                  `👤 **User:** ${m.sender.split('@')[0]}\n` +
+                  `💼 **Account:** ${process.env.CHANNEL_ID || '3342'}\n` +
+                  `📊 **Status:** Active\n\n` +
+                  `*Quick Actions:*`,
+            footer: 'CLOUD AI Payment System | Funds go to BERA TECH Account',
+            buttons: [
+                { id: 'btn_stk_100', text: '💰 Send KES 100' },
+                { id: 'btn_stk_500', text: '💰 Send KES 500' },
+                { id: 'btn_stk_1000', text: '💰 Send KES 1000' },
+                { id: 'btn_stk_custom', text: '⚡ Custom Amount' },
+                { id: 'btn_check_tx', text: '📊 Check TX' },
+                { id: 'btn_payment_dashboard', text: '🎛️ Dashboard' }
+            ]
+        });
+    }
+    
+    async handleStkPush(m, sock, args) {
+        const [phone, amount] = args.split(' ');
+        
+        if (!phone || !amount) {
+            await sendButtons(sock, m.from, {
+                title: '💳 STK Push Setup',
+                text: `*Send STK Push to Customer*\n\nUsage: .stk [phone] [amount]\nExample: .stk 254712345678 100\n\nPhone formats:\n• 254712345678\n• 0712345678`,
+                footer: 'Payment will go to BERA TECH account',
+                buttons: [
+                    { id: 'btn_stk_100', text: 'Quick: KES 100' },
+                    { id: 'btn_stk_500', text: 'Quick: KES 500' },
+                    { id: 'btn_stk_1000', text: 'Quick: KES 1000' },
+                    { id: 'btn_stk_custom_input', text: '📝 Enter Custom' }
+                ]
+            });
             return;
         }
         
-        await m.reply(`📊 *Checking Transaction*\n\nReference: ${reference}\n\n_Querying payment system..._`);
-        
-        // DIRECT PAYMENT CALL
-        if (!global.paymentService || !global.paymentService.isAvailable()) {
-            throw new Error('Payment system unavailable. Check server status.');
-        }
-        
-        const tx = await global.paymentService.checkTransaction(reference);
-        
-        let statusEmoji = '⏳';
-        let statusText = tx.status || 'Unknown';
-        
-        if (statusText.toLowerCase().includes('success') || statusText.toLowerCase().includes('complete')) {
-            statusEmoji = '✅';
-        } else if (statusText.toLowerCase().includes('fail') || statusText.toLowerCase().includes('cancel')) {
-            statusEmoji = '❌';
-        } else if (statusText.toLowerCase().includes('pending')) {
-            statusEmoji = '🔄';
-        }
-        
-        await m.reply(`${statusEmoji} *Transaction Status*\n\n` +
-                     `🔖 Reference: ${tx.reference}\n` +
-                     `📱 Phone: ${tx.phone_number || 'N/A'}\n` +
-                     `💰 Amount: KES ${tx.amount || 'N/A'}\n` +
-                     `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n` +
-                     `📊 Status: ${statusText.toUpperCase()}\n` +
-                     `💾 Code: ${tx.response_code || 'N/A'}\n` +
-                     `📝 Description: ${tx.response_description || 'N/A'}\n` +
-                     `📅 Time: ${tx.timestamp || new Date().toLocaleString()}`);
-        
-    } catch (error) {
-        console.error('❌ Status Check Error:', error.message);
-        await m.reply(`❌ *Status Check Failed*\n\n${error.message}\n\nCheck transaction reference and try again.`);
+        await this.processStkPush(m, sock, phone, amount);
     }
-}
-
-async handleBalanceCheck(m, sock) {
-    try {
-        await m.reply(`💰 *Checking Account Balance*\n\n_Connecting to payment system..._`);
+    
+    async processStkPush(m, sock, phone, amount, customRef = null) {
+        try {
+            const reference = customRef || `BOT-${m.sender.split('@')[0].slice(-4)}-${Date.now().toString().slice(-6)}`;
+            
+            await m.reply(`💳 *Initiating STK Push*\n\n` +
+                         `📱 To: ${phone}\n` +
+                         `💰 Amount: KES ${amount}\n` +
+                         `🔖 Reference: ${reference}\n` +
+                         `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n\n` +
+                         `_Processing payment request..._`);
+            
+            await m.React('⏳');
+            
+            // DIRECT PAYMENT CALL - No HTTP API
+            if (!global.paymentService || !global.paymentService.isAvailable()) {
+                throw new Error('Payment system is not available. The server may need to restart.');
+            }
+            
+            const result = await global.paymentService.stkPush(phone, amount, reference);
+            
+            await m.reply(`✅ *STK Push Sent!*\n\n` +
+                         `📱 Customer: ${phone}\n` +
+                         `💰 Amount: KES ${amount}\n` +
+                         `🔖 Reference: ${result.reference}\n` +
+                         `📊 Status: ${result.status || 'Pending'}\n` +
+                         `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n\n` +
+                         `_Customer should receive M-Pesa prompt shortly._\n\n` +
+                         `Check status: .tx ${result.reference}`);
+            
+            await m.React('✅');
+            
+            this.lastStkPush = {
+                reference: result.reference,
+                phone: phone,
+                amount: amount,
+                time: new Date().toISOString()
+            };
+            
+        } catch (error) {
+            console.error('❌ STK Error:', error.message);
+            
+            let errorMsg = `❌ *Payment Failed*\n\n`;
+            errorMsg += `Error: ${error.message}\n\n`;
+            errorMsg += `🔧 Troubleshooting:\n`;
+            errorMsg += `• Check phone format (2547XXXXXXXX or 07XXXXXXXX)\n`;
+            errorMsg += `• Verify amount is valid (e.g., 100, 500)\n`;
+            errorMsg += `• Check server logs for details\n`;
+            errorMsg += `• Ensure AUTH_TOKEN is correct in .env file`;
+            
+            await m.reply(errorMsg);
+            await m.React('❌');
+        }
+    }
+    
+    async handleTransactionCheck(m, sock, args) {
+        const reference = args.split(' ')[0] || (this.lastStkPush?.reference);
         
-        // DIRECT PAYMENT CALL
-        if (!global.paymentService || !global.paymentService.isAvailable()) {
-            throw new Error('Payment system unavailable.');
+        if (!reference) {
+            await m.reply(`📊 *Check Transaction*\n\nUsage: .tx [reference]\n\nOr use .stk first to get a reference.`);
+            return;
         }
         
-        const balance = await global.paymentService.getBalance();
-        
-        await m.reply(`💰 *Account Overview*\n\n` +
-                     `👑 Account ID: ${balance.account_id || process.env.CHANNEL_ID || '3342'}\n` +
-                     `💼 Balance: KES ${balance.balance || '0.00'}\n` +
-                     `📊 Currency: ${balance.currency || 'KES'}\n` +
-                     `🏦 Provider: ${balance.provider || process.env.DEFAULT_PROVIDER || 'm-pesa'}\n` +
-                     `👤 Requested by: @${m.sender.split('@')[0]}\n` +
-                     `🔄 Last Check: ${new Date().toLocaleTimeString()}\n\n` +
-                     `_Payment system is active and ready._`);
-        
-    } catch (error) {
-        console.error('❌ Balance Check Error:', error.message);
-        await m.reply(`❌ *Balance Check Failed*\n\n${error.message}\n\nPayment system may be offline or misconfigured.`);
+        await this.checkTransactionStatus(m, sock, reference);
     }
-}  
+    
+    async checkTransactionStatus(m, sock, reference) {
+        try {
+            await m.reply(`📊 *Checking Transaction*\n\nReference: ${reference}\n\n_Querying payment system..._`);
+            
+            // DIRECT PAYMENT CALL
+            if (!global.paymentService || !global.paymentService.isAvailable()) {
+                throw new Error('Payment system unavailable. Check server status.');
+            }
+            
+            const tx = await global.paymentService.checkTransaction(reference);
+            
+            let statusEmoji = '⏳';
+            let statusText = tx.status || 'Unknown';
+            
+            if (statusText.toLowerCase().includes('success') || statusText.toLowerCase().includes('complete')) {
+                statusEmoji = '✅';
+            } else if (statusText.toLowerCase().includes('fail') || statusText.toLowerCase().includes('cancel')) {
+                statusEmoji = '❌';
+            } else if (statusText.toLowerCase().includes('pending')) {
+                statusEmoji = '🔄';
+            }
+            
+            await m.reply(`${statusEmoji} *Transaction Status*\n\n` +
+                         `🔖 Reference: ${tx.reference}\n` +
+                         `📱 Phone: ${tx.phone_number || 'N/A'}\n` +
+                         `💰 Amount: KES ${tx.amount || 'N/A'}\n` +
+                         `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n` +
+                         `📊 Status: ${statusText.toUpperCase()}\n` +
+                         `💾 Code: ${tx.response_code || 'N/A'}\n` +
+                         `📝 Description: ${tx.response_description || 'N/A'}\n` +
+                         `📅 Time: ${tx.timestamp || new Date().toLocaleString()}`);
+            
+        } catch (error) {
+            console.error('❌ Status Check Error:', error.message);
+            await m.reply(`❌ *Status Check Failed*\n\n${error.message}\n\nCheck transaction reference and try again.`);
+        }
+    }
+    
+    async handleBalanceCheck(m, sock) {
+        try {
+            await m.reply(`💰 *Checking Account Balance*\n\n_Connecting to payment system..._`);
+            
+            // DIRECT PAYMENT CALL
+            if (!global.paymentService || !global.paymentService.isAvailable()) {
+                throw new Error('Payment system unavailable.');
+            }
+            
+            const balance = await global.paymentService.getBalance();
+            
+            await m.reply(`💰 *Account Overview*\n\n` +
+                         `👑 Account ID: ${balance.account_id || process.env.CHANNEL_ID || '3342'}\n` +
+                         `💼 Balance: KES ${balance.balance || '0.00'}\n` +
+                         `📊 Currency: ${balance.currency || 'KES'}\n` +
+                         `🏦 Provider: ${balance.provider || process.env.DEFAULT_PROVIDER || 'm-pesa'}\n` +
+                         `👤 Requested by: @${m.sender.split('@')[0]}\n` +
+                         `🔄 Last Check: ${new Date().toLocaleTimeString()}\n\n` +
+                         `_Payment system is active and ready._`);
+            
+        } catch (error) {
+            console.error('❌ Balance Check Error:', error.message);
+            await m.reply(`❌ *Balance Check Failed*\n\n${error.message}\n\nPayment system may be offline or misconfigured.`);
+        }
+    }
+    
+    async showPaymentDashboard(m, sock) {
+        try {
+            let paymentStatus = '❌ Disconnected';
+            let balance = 'N/A';
+            let accountId = process.env.CHANNEL_ID || '3342';
+            
+            if (global.paymentService && global.paymentService.isAvailable()) {
+                try {
+                    const balanceInfo = await global.paymentService.getBalance();
+                    paymentStatus = '✅ Connected';
+                    balance = `KES ${balanceInfo.balance || '0.00'}`;
+                    accountId = balanceInfo.account_id || accountId;
+                } catch (error) {
+                    paymentStatus = '⚠️ Connected with errors';
+                }
+            }
+            
+            await sendButtons(sock, m.from, {
+                title: '🎛️ Payment Dashboard',
+                text: `*Payment System Status*\n\n` +
+                      `🔌 Connection: ${paymentStatus}\n` +
+                      `💰 Balance: ${balance}\n` +
+                      `🏦 Account: ${accountId}\n` +
+                      `📊 Provider: ${process.env.DEFAULT_PROVIDER || 'm-pesa'}\n\n` +
+                      `*Quick Actions:*`,
+                footer: 'CLOUD AI Payment Management | Funds to BERA TECH',
+                buttons: [
+                    { id: 'btn_stk_100', text: '💸 KES 100' },
+                    { id: 'btn_stk_500', text: '💸 KES 500' },
+                    { id: 'btn_stk_1000', text: '💸 KES 1000' },
+                    { id: 'btn_check_tx', text: '📊 Check TX' },
+                    { id: 'btn_payment_health', text: '❤️ Health' },
+                    { id: 'btn_menu_back', text: '🔙 Back' }
+                ]
+            });
+            
+        } catch (error) {
+            await m.reply(`❌ *Dashboard Error*\n\n${error.message}\n\nServer may be offline.`);
+        }
+    }
+    
+    async showPaymentInfo(m, sock) {
+        await m.reply(`💳 *Payment Information*\n\n` +
+                     `**Accepted Payments:**\n` +
+                     `✅ M-Pesa\n` +
+                     `✅ Airtel Money\n\n` +
+                     `**Payment Process:**\n` +
+                     `1. Send STK push to any number\n` +
+                     `2. Customer receives M-Pesa prompt\n` +
+                     `3. Customer completes payment\n` +
+                     `4. Funds go to: ${process.env.CHANNEL_ID || '3342'}\n\n` +
+                     `**Commands:**\n` +
+                     `• .stk [phone] [amount] - Send payment request\n` +
+                     `• .tx [reference] - Check payment status\n` +
+                     `• .balance - Check account balance\n` +
+                     `• .payments - Payment dashboard`);
+    }
+    
+    async showPaymentHelp(m, sock) {
+        const helpText = `💳 *PAYMENT SYSTEM HELP*\n\n` +
+                        `🔧 **Commands:**\n` +
+                        `• .stk [phone] [amount] - Send STK push\n` +
+                        `• .tx [reference] - Check transaction\n` +
+                        `• .balance - Check account balance\n` +
+                        `• .payments - Payment dashboard\n` +
+                        `• .pay - Show payment menu\n\n` +
+                        `📱 **Phone Formats:**\n` +
+                        `• 254712345678 (Recommended)\n` +
+                        `• 0712345678 (Auto-converts to 254)\n\n` +
+                        `💰 **Quick Amounts:**\n` +
+                        `• .stk 254712345678 100\n` +
+                        `• .stk 0712345678 500\n\n` +
+                        `📊 **Checking Payments:**\n` +
+                        `• .tx BOT-XXXX-XXXXXX\n` +
+                        `• Last transaction auto-saved\n\n` +
+                        `🔐 **Account:** ${process.env.CHANNEL_ID || '3342'}\n` +
+                        `🏦 **Provider:** ${process.env.DEFAULT_PROVIDER || 'm-pesa'}\n` +
+                        `👑 **Funds go to:** BERA TECH`;
+        
+        await m.reply(helpText);
     }
 
     // ==================== OTHER COMMAND METHODS ====================
@@ -1714,13 +1957,29 @@ async handleBalanceCheck(m, sock) {
     }
 
     extractMessageText(message) {
-        if (message.conversation) return message.conversation;
-        if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
-        if (message.imageMessage?.caption) return message.imageMessage.caption;
-        if (message.videoMessage?.caption) return message.videoMessage.caption;
-        if (message.buttonsResponseMessage?.selectedButtonId) return null;
-        if (message.listResponseMessage?.selectedRowId) return null;
-        return '';
+        if (!message) return '';
+        
+        try {
+            if (message.conversation) return message.conversation;
+            if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
+            if (message.imageMessage?.caption) return message.imageMessage.caption;
+            if (message.videoMessage?.caption) return message.videoMessage.caption;
+            if (message.buttonsResponseMessage?.selectedButtonId) return null;
+            if (message.listResponseMessage?.selectedRowId) return null;
+            
+            // Check for viewOnce messages
+            if (message.viewOnceMessageV2?.message) {
+                return this.extractMessageText(message.viewOnceMessageV2.message);
+            }
+            if (message.viewOnceMessage?.message) {
+                return this.extractMessageText(message.viewOnceMessage.message);
+            }
+            
+            return '';
+        } catch (error) {
+            console.error('Error extracting message text:', error);
+            return '';
+        }
     }
 
     serializeMessage(message, sock) {
