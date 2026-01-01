@@ -1,5 +1,6 @@
-}
-"vcf": {
+
+{
+  "vcf": {
     "enabled": true,
     "maxContacts": 1000,
     "tempFileLifetime": 300
@@ -23,7 +24,7 @@
     "enabled": true,
     "ownerOnly": true
   },
-  "AUTO_REACT": false,
+  "AUTO_REACT": true,
   "AUTO_STATUS_REACT": "true",
   "ownerNumbers": ["254116763755", "254743982206"],
   "ownerNumber": "254116763755",
