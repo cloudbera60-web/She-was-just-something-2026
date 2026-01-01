@@ -6,7 +6,6 @@ const path = require('path');
 const app = express();
 const bodyParser = require("body-parser");
 const cors = require('cors');
-const { PayHeroClient } = require('payhero-devkit');
 
 // Get port from environment
 const PORT = process.env.PORT || 50900;
@@ -24,158 +23,58 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Initialize PayHero Client
-const payheroClient = new PayHeroClient({
-  authToken: process.env.PAYHERO_AUTH_TOKEN || process.env.AUTH_TOKEN
-});
+// ==================== PAYMENT SERVICE INITIALIZATION ====================
+console.log('💰 Initializing Payment System...');
 
-// Routes
+// Import and create payment service
+const { createPaymentService } = require('./payment-service');
+
+// Initialize payment service (shared globally)
+try {
+    global.paymentService = createPaymentService();
+    
+    if (global.paymentService && global.paymentService.isAvailable()) {
+        console.log('✅ Payment service initialized and ready');
+    } else {
+        console.log('⚠️  Payment service initialized but not available (check credentials)');
+    }
+} catch (error) {
+    console.error('❌ Failed to initialize payment service:', error.message);
+    global.paymentService = null;
+}
+
+// ==================== ROUTES ====================
+
+// QR Code and Pairing
 app.use('/qr', qrRoute);
 app.use('/code', pairRoute);
 
-// ==================== PAYMENT ROUTES ====================
-
-// STK Push Endpoint - REAL IMPLEMENTATION
-app.post('/api/stk-push', async (req, res) => {
-  try {
-    const { phone_number, amount, external_reference, customer_name } = req.body;
-
-    // Validation
-    if (!phone_number || !amount) {
-      return res.status(400).json({
-        success: false,
-        error: 'Phone number and amount are required'
-      });
-    }
-
-    // Format phone number
-    let formattedPhone = phone_number.trim();
-    if (formattedPhone.startsWith('0')) {
-      formattedPhone = '254' + formattedPhone.substring(1);
-    } else if (formattedPhone.startsWith('+')) {
-      formattedPhone = formattedPhone.substring(1);
-    }
-
-    if (!formattedPhone.startsWith('254')) {
-      return res.status(400).json({
-        success: false,
-        error: 'Phone number must be in format 2547XXXXXXXX'
-      });
-    }
-
-    // REAL STK Push with your credentials
-    const stkPayload = {
-      phone_number: formattedPhone,
-      amount: parseFloat(amount),
-      provider: process.env.DEFAULT_PROVIDER || 'm-pesa',
-      channel_id: process.env.CHANNEL_ID || '3342',
-      external_reference: external_reference || `BOT-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      customer_name: customer_name || 'CLOUD AI Customer'
-    };
-
-    console.log('💳 [BOT] Initiating STK Push:', stkPayload);
-    
-    const response = await payheroClient.stkPush(stkPayload);
-    
-    console.log('✅ [BOT] STK Push Response:', response);
-    
-    res.json({
-      success: true,
-      message: 'STK push initiated successfully',
-      data: response
-    });
-
-  } catch (error) {
-    console.error('❌ [BOT] STK Push Error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to initiate STK push'
-    });
-  }
-});
-
-// Transaction Status Endpoint - REAL IMPLEMENTATION
-app.get('/api/transaction-status/:reference', async (req, res) => {
-  try {
-    const { reference } = req.params;
-    
-    if (!reference) {
-      return res.status(400).json({
-        success: false,
-        error: 'Transaction reference is required'
-      });
-    }
-
-    console.log('💳 [BOT] Checking transaction status:', reference);
-    const response = await payheroClient.transactionStatus(reference);
-    console.log('✅ [BOT] Status Response:', response);
-    
-    res.json({
-      success: true,
-      data: response
-    });
-
-  } catch (error) {
-    console.error('❌ [BOT] Transaction Status Error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to get transaction status'
-    });
-  }
-});
-
-// Payment Health Check
-app.get('/api/payment/health', async (req, res) => {
-  try {
-    // Test the connection by checking service wallet balance
-    const balance = await payheroClient.serviceWalletBalance();
-    
-    res.json({
-      success: true,
-      message: 'Payment system is connected',
-      account_id: process.env.CHANNEL_ID || '3342',
-      provider: process.env.DEFAULT_PROVIDER || 'm-pesa',
-      timestamp: new Date().toISOString(),
-      balance: balance
-    });
-  } catch (error) {
-    res.json({
-      success: false,
-      message: 'Payment system connection failed',
-      error: error.message
-    });
-  }
-});
-
-// Payment webhook for automatic confirmation
+// Payment webhook (for external callbacks from PayHero)
 app.post('/api/payment/webhook', async (req, res) => {
-  try {
-    const paymentData = req.body;
-    
-    console.log('💰 [BOT] Payment Webhook Received:', JSON.stringify(paymentData, null, 2));
-    
-    // Here you can:
-    // 1. Send WhatsApp notification to owner
-    // 2. Update database
-    // 3. Send confirmation to customer
-    
-    // Send response to acknowledge receipt
-    res.json({ success: true, message: 'Webhook received' });
-    
-  } catch (error) {
-    console.error('❌ [BOT] Webhook Error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
+    try {
+        const paymentData = req.body;
+        
+        console.log('💰 Payment Webhook Received:', JSON.stringify(paymentData, null, 2));
+        
+        // You can process successful payments here
+        // Example: Send WhatsApp notification, update database, etc.
+        
+        res.json({ success: true, message: 'Webhook received' });
+        
+    } catch (error) {
+        console.error('❌ Webhook Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
-// ==================== BOT ROUTES ====================
+// ==================== BASIC ROUTES ====================
 
 app.get('/pair', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'pair.html'));
+    res.sendFile(path.join(__dirname, 'public', 'pair.html'));
 });
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Health check endpoint
@@ -184,21 +83,26 @@ app.get('/health', async (req, res) => {
     const database = require('./database');
     const { getActiveBots } = require('./bot-runner');
     
-    // Check payment system health
-    let paymentHealth = { status: 'Not configured' };
-    try {
-        const balance = await payheroClient.serviceWalletBalance();
-        paymentHealth = {
-            status: 'Connected ✅',
-            account_id: process.env.CHANNEL_ID || '3342',
-            balance: balance,
-            provider: process.env.DEFAULT_PROVIDER || 'm-pesa'
-        };
-    } catch (error) {
-        paymentHealth = {
-            status: 'Disconnected ❌',
-            error: error.message
-        };
+    // Check payment service status
+    let paymentStatus = '❌ Not initialized';
+    let paymentDetails = {};
+    
+    if (global.paymentService) {
+        if (global.paymentService.isAvailable()) {
+            paymentStatus = '✅ Available';
+            try {
+                const balance = await global.paymentService.getBalance();
+                paymentDetails = {
+                    account_id: process.env.CHANNEL_ID || '3342',
+                    balance: balance,
+                    provider: process.env.DEFAULT_PROVIDER || 'm-pesa'
+                };
+            } catch (error) {
+                paymentStatus = `⚠️ Available but error: ${error.message}`;
+            }
+        } else {
+            paymentStatus = '⚠️ Initialized but not available';
+        }
     }
     
     res.json({
@@ -213,7 +117,7 @@ app.get('/health', async (req, res) => {
             memory: `${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`
         },
         bot: {
-            activeBots: Object.keys(getActiveBots()).length,
+            activeBots: Object.keys(getActiveBots() || {}).length,
             pluginsLoaded: pluginLoader.plugins ? pluginLoader.plugins.size : 0,
             name: process.env.BOT_NAME || 'CLOUD AI',
             mode: process.env.BOT_MODE || 'public',
@@ -222,7 +126,10 @@ app.get('/health', async (req, res) => {
         database: {
             mongoConnected: database.isConnected ? '✅ Connected' : '❌ Disconnected'
         },
-        payment: paymentHealth,
+        payment: {
+            status: paymentStatus,
+            ...paymentDetails
+        },
         owner: {
             name: 'BERA TECH',
             phone: process.env.OWNER_NUMBER || '254116763755',
@@ -235,38 +142,87 @@ app.get('/health', async (req, res) => {
 app.get('/api/docs', (req, res) => {
     res.json({
         endpoints: {
-            payment: {
-                'POST /api/stk-push': 'Initiate STK push payment',
-                'GET /api/transaction-status/:reference': 'Check payment status',
-                'GET /api/payment/health': 'Payment system health check',
-                'POST /api/payment/webhook': 'Payment confirmation webhook'
-            },
-            bot: {
-                'GET /health': 'Bot system health check',
+            web: {
                 'GET /': 'Home page',
-                'GET /pair': 'Pairing interface'
+                'GET /pair': 'Pairing interface',
+                'GET /health': 'System health check',
+                'GET /api/docs': 'This documentation'
+            },
+            payment: {
+                'POST /api/payment/webhook': 'Payment confirmation webhook (for PayHero callbacks)'
             }
-        }
+        },
+        note: 'Payment commands are handled directly via WhatsApp (.stk, .tx, .balance)'
     });
 });
 
-// Initialize bot system
+// Debug endpoint for testing payment service
+app.get('/api/debug/payment', async (req, res) => {
+    try {
+        if (!global.paymentService || !global.paymentService.isAvailable()) {
+            return res.status(503).json({
+                success: false,
+                message: 'Payment service not available',
+                credentials: {
+                    hasToken: !!(process.env.PAYHERO_AUTH_TOKEN || process.env.AUTH_TOKEN),
+                    channelId: process.env.CHANNEL_ID,
+                    provider: process.env.DEFAULT_PROVIDER
+                }
+            });
+        }
+        
+        // Test with balance check
+        const balance = await global.paymentService.getBalance();
+        
+        res.json({
+            success: true,
+            message: 'Payment service is working!',
+            server: {
+                port: PORT,
+                url: `http://localhost:${PORT}`,
+                environment: process.env.NODE_ENV
+            },
+            credentials: {
+                tokenPresent: !!(process.env.PAYHERO_AUTH_TOKEN || process.env.AUTH_TOKEN),
+                channelId: process.env.CHANNEL_ID || '3342',
+                provider: process.env.DEFAULT_PROVIDER || 'm-pesa'
+            },
+            balance: balance
+        });
+        
+    } catch (error) {
+        console.error('Debug Payment Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+            credentials: {
+                tokenPresent: !!(process.env.PAYHERO_AUTH_TOKEN || process.env.AUTH_TOKEN),
+                channelId: process.env.CHANNEL_ID,
+                provider: process.env.DEFAULT_PROVIDER
+            }
+        });
+    }
+});
+
+// ==================== SERVER INITIALIZATION ====================
+
 async function startServer() {
     try {
         console.log('🚀 Starting CLOUD AI Bot Runner...');
-        console.log('💳 Payment System: INTEGRATED');
+        console.log('💳 Payment System:', global.paymentService ? 'INTEGRATED' : 'DISABLED');
         console.log('🔐 Account ID:', process.env.CHANNEL_ID || '3342');
         
         // Load configuration
         const configManager = require('./config-manager');
         await configManager.loadConfig();
         
-        // Connect to MongoDB
+        // Connect to MongoDB (optional)
         const database = require('./database');
         const dbConnected = await database.connect();
         
         if (dbConnected) {
-            console.log('✅ MongoDB connected successfully');
+            console.log('✅ Database connected successfully');
         } else {
             console.log('⚠️ Running without database persistence');
         }
@@ -291,7 +247,8 @@ async function startServer() {
 ║  👑 Owner: ${process.env.OWNER_NAME || 'BERA TECH'}           ║
 ║  🔧 Prefix: ${process.env.BOT_PREFIX || '.'}                  ║
 ║  💳 Account: ${process.env.CHANNEL_ID || '3342'}              ║
-║  🗄️  MongoDB: ${database.isConnected ? '✅ Connected' : '❌ Disconnected'}
+║  💰 Payment: ${global.paymentService ? '✅ Ready' : '❌ Disabled'}
+║  🗄️  Database: ${database.isConnected ? '✅ Connected' : '❌ Disconnected'}
 ║  📦 Plugins: ${pluginCount} loaded                         ║
 ║  🔗 URL: http://localhost:${PORT}                         ║
 ╚══════════════════════════════════════════════════════════╝
@@ -300,9 +257,9 @@ async function startServer() {
                 console.log(`• Home: http://localhost:${PORT}`);
                 console.log(`• Pair: http://localhost:${PORT}/pair`);
                 console.log(`• Health: http://localhost:${PORT}/health`);
-                console.log(`• API Docs: http://localhost:${PORT}/api/docs`);
-                console.log('💳 Payment System Ready');
-                console.log('📱 Owner Commands: .stk, .tx, .balance');
+                console.log(`• Payment Debug: http://localhost:${PORT}/api/debug/payment`);
+                console.log('💳 Payment Commands: .stk, .tx, .balance');
+                console.log('📱 All payment commands available to everyone');
             });
         } else {
             console.error('❌ Failed to initialize bot system');
@@ -332,4 +289,8 @@ process.on('SIGTERM', async () => {
 // Start the server
 startServer();
 
-module.exports = app;
+// Export for other modules
+module.exports = {
+    app,
+    paymentService: global.paymentService
+};
