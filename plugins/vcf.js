@@ -1,4 +1,3 @@
-
 const fs = require('fs').promises;
 const path = require('path');
 const { sendButtons } = require('gifted-btns');
@@ -18,6 +17,22 @@ module.exports = async (m, sock) => {
       const participants = groupMetadata.participants;
       const admins = participants.filter(p => p.admin);
       
+      // Store data in global variable accessible to bot-runner
+      global.vcfData = global.vcfData || {};
+      global.vcfData[m.sender] = {
+        metadata: groupMetadata,
+        participants: participants,
+        admins: admins,
+        timestamp: Date.now()
+      };
+      
+      // Clean old data (older than 5 minutes)
+      setTimeout(() => {
+        if (global.vcfData && global.vcfData[m.sender]) {
+          delete global.vcfData[m.sender];
+        }
+      }, 5 * 60 * 1000);
+      
       await sendButtons(sock, m.from, {
         title: '📇 Professional Contact Export',
         text: `*Group Analysis Complete*\n\n` +
@@ -35,7 +50,7 @@ module.exports = async (m, sock) => {
         ]
       });
       
-      // Store data for button handlers
+      // Also store data in message object for immediate use
       m.vcfData = {
         metadata: groupMetadata,
         participants: participants,
@@ -52,7 +67,19 @@ module.exports = async (m, sock) => {
 // Export function for bot-runner.js to use
 async function exportVCF(m, sock, type, data) {
   try {
-    const { metadata, participants, admins } = data;
+    // Try to get data from message first, then from global storage
+    let exportData = data;
+    
+    if (!exportData) {
+      // Try to get from global storage
+      if (global.vcfData && global.vcfData[m.sender]) {
+        exportData = global.vcfData[m.sender];
+      } else {
+        return m.reply('❌ Please run .vcf command first to analyze the group.');
+      }
+    }
+    
+    const { metadata, participants, admins } = exportData;
     let exportParticipants = [];
     let exportType = '';
     
@@ -103,6 +130,11 @@ async function exportVCF(m, sock, type, data) {
     setTimeout(() => {
       fs.unlink(filePath).catch(() => {});
     }, 30000);
+    
+    // Clean global data after successful export
+    if (global.vcfData && global.vcfData[m.sender]) {
+      delete global.vcfData[m.sender];
+    }
     
   } catch (error) {
     console.error('VCF Export Error:', error);
