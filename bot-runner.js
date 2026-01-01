@@ -1,16 +1,20 @@
-global.userStates = {}
+
+global.userStates = {};
 
 const path = require('path');
 const pino = require('pino');
-const { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, jidDecode, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, jidDecode, downloadMediaMessage, getContentType } = require('@whiskeysockets/baileys');
 const NodeCache = require('node-cache');
 const database = require('./database');
 const pluginLoader = require('./plugin-loader');
-const { sendButtons, sendInteractiveMessage } = require('gifted-btns');
+const { sendButtons } = require('gifted-btns');
 const fs = require('fs').promises;
 const fetch = require('node-fetch');
 const FormData = require('form-data');
 const { fileTypeFromBuffer } = require('file-type');
+const axios = require('axios');
+const config = require('./config.json');
+const os = require('os');
 
 class BotRunner {
     constructor(sessionId, authState) {
@@ -27,6 +31,66 @@ class BotRunner {
         this.lastActivity = new Date();
         this.userStates = new Map();
         this.activeUploads = new Map();
+        this.lastStkPush = null;
+        
+        // Auto-features configuration
+        this.autoReactEnabled = config.AUTO_REACT !== undefined ? config.AUTO_REACT : true;
+        this.autoStatusReactEnabled = config.AUTO_STATUS_REACT === "true" || true;
+        
+        // Auto-reaction emojis
+        this.chatEmojis = ['❤️', '😂', '😮', '😢', '👏', '🔥', '⭐', '🎉', '👍', '👎', '😍', '🤔', '😎', '🥳', '🤯', '😱'];
+        
+        // Status reaction emojis
+        this.statusEmojis = ['🦖', '💸', '💨', '🦮', '🐕‍🦺', '💯', '🔥', '💫', '💎', '⚡', '🤍', '🖤', '👀', '🙌', '🙆', '🚩', '💻', '🤖', '😎', '🤎', '✅', '🫀', '🧡', '😁', '😄', '🔔', '👌', '💥', '⛅', '🌟', '🗿', '🇵🇰', '💜', '💙', '🌝', '💚'];
+        
+        // Payment settings - REMOVED OWNER RESTRICTIONS
+        this.ownerNumbers = config.ownerNumbers || ['254116763755', '254743982206'];
+        this.serverUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 50900}`;
+        
+        // Logo styles
+        this.logoStyles = {
+            'blackpink': 'https://api.davidcyriltech.my.id/logo/blackpink?text=',
+            'glossysilver': 'https://api.davidcyriltech.my.id/logo/glossysilver?text=',
+            'naruto': 'https://api.davidcyriltech.my.id/logo/Naruto?text=',
+            'digitalglitch': 'https://api.davidcyriltech.my.id/logo/digitalglitch?text=',
+            'pixelglitch': 'https://api.davidcyriltech.my.id/logo/pixelglitch?text=',
+            'water': 'https://api.davidcyriltech.my.id/logo/water?text=',
+            'bulb': 'https://api.davidcyriltech.my.id/logo/bulb?text=',
+            'zodiac': 'https://api.davidcyriltech.my.id/logo/zodiac?text=',
+            'water3d': 'https://api.davidcyriltech.my.id/logo/water3D?text=',
+            'dragonfire': 'https://api.davidcyriltech.my.id/logo/dragonfire?text=',
+            'bokeh': 'https://api.davidcyriltech.my.id/logo/bokeh?text=',
+            'queencard': 'https://api.davidcyriltech.my.id/logo/Queencard?text=',
+            'birthdaycake': 'https://api.davidcyriltech.my.id/logo/birthdaycake?text=',
+            'underwater': 'https://api.davidcyriltech.my.id/logo/underwater?text=',
+            'glow': 'https://api.davidcyriltech.my.id/logo/glow?text=',
+            'wetglass': 'https://api.davidcyriltech.my.id/logo/wetglass?text=',
+            'graffiti': 'https://api.davidcyriltech.my.id/logo/graffiti?text=',
+            'halloween': 'https://api.davidcyriltech.my.id/logo/halloween?text=',
+            'luxury': 'https://api.davidcyriltech.my.id/logo/luxury?text=',
+            'avatar': 'https://api.davidcyriltech.my.id/logo/avatar?text=',
+            'blood': 'https://api.davidcyriltech.my.id/logo/blood?text=',
+            'hacker': 'https://api.davidcyriltech.my.id/logo/hacker?text=',
+            'paint': 'https://api.davidcyriltech.my.id/logo/paint?text=',
+            'rotation': 'https://api.davidcyriltech.my.id/logo/rotation?text=',
+            'graffiti2': 'https://api.davidcyriltech.my.id/logo/graffiti2?text=',
+            'typography': 'https://api.davidcyriltech.my.id/logo/typography?text=',
+            'horror': 'https://api.davidcyriltech.my.id/logo/horror?text=',
+            'valentine': 'https://api.davidcyriltech.my.id/logo/valentine?text=',
+            'team': 'https://api.davidcyriltech.my.id/logo/team?text=',
+            'gold': 'https://api.davidcyriltech.my.id/logo/gold?text=',
+            'pentakill': 'https://api.davidcyriltech.my.id/logo/pentakill?text=',
+            'galaxy': 'https://api.davidcyriltech.my.id/logo/galaxy?text=',
+            'birthdayflower': 'https://api.davidcyriltech.my.id/logo/birthdayflower?text=',
+            'pubg': 'https://api.davidcyriltech.my.id/logo/pubg?text=',
+            'sand3d': 'https://api.davidcyriltech.my.id/logo/sand3D?text=',
+            'wall': 'https://api.davidcyriltech.my.id/logo/wall?text=',
+            'womensday': 'https://api.davidcyriltech.my.id/logo/womensday?text=',
+            'thunder': 'https://api.davidcyriltech.my.id/logo/thunder?text=',
+            'snow': 'https://api.davidcyriltech.my.id/logo/snow?text=',
+            'textlight': 'https://api.davidcyriltech.my.id/logo/textlight?text=',
+            'sand': 'https://api.davidcyriltech.my.id/logo/sand?text='
+        };
     }
 
     async start() {
@@ -99,18 +163,10 @@ class BotRunner {
         try {
             await pluginLoader.loadPlugins();
             
-            // Check essential plugins
-            const essentialPlugins = ['menu', 'ping', 'owner'];
             const loadedPlugins = Array.from(pluginLoader.plugins.keys());
             
             console.log(`📦 Plugins loaded: ${loadedPlugins.length}`);
             console.log(`📋 Available plugins: ${loadedPlugins.join(', ')}`);
-            
-            // Verify essential plugins
-            const missingPlugins = essentialPlugins.filter(p => !loadedPlugins.includes(p));
-            if (missingPlugins.length > 0) {
-                console.warn(`⚠️ Missing essential plugins: ${missingPlugins.join(', ')}`);
-            }
             
         } catch (error) {
             console.error('❌ Failed to initialize plugins:', error);
@@ -170,490 +226,1034 @@ class BotRunner {
             }
         });
 
-        // Handle incoming messages
-        socket.ev.on("messages.upsert", async (chatUpdate) => {
+        // ==================== AUTO STATUS VIEW & LIKE ====================
+        // Using your provided pattern
+        socket.ev.on('messages.upsert', async (chatUpdate) => {
             try {
-                this.lastActivity = new Date();
+                const mek = chatUpdate.messages[0];
+                if (!mek || !mek.message) return;
+
+                const contentType = getContentType(mek.message);
                 
-                const m = this.serializeMessage(chatUpdate.messages[0], socket);
-                if (!m.message) return;
-                
-                const body = this.extractMessageText(m.message);
-                
-                console.log('📥 Message received from:', m.sender.substring(0, 8));
-                console.log('📦 Message type:', Object.keys(m.message || {})[0]);
-                
-                // ==================== BUTTON DETECTION ====================
-                // Check for interactive template buttons
-                if (m.message?.templateButtonReplyMessage) {
-                    const buttonId = m.message.templateButtonReplyMessage.selectedId;
-                    console.log(`🔘 Template button clicked: ${buttonId}`);
-                    if (buttonId) {
-                        await this.handleButtonClick(m, socket, buttonId);
-                        return;
-                    }
+                // Handle ephemeral messages (view-once)
+                if (contentType === 'ephemeralMessage') {
+                    mek.message = mek.message.ephemeralMessage.message;
+                }
+
+                // Auto-like status updates
+                if (mek.key.remoteJid === 'status@broadcast' && this.autoStatusReactEnabled) {
+                    const jawadlike = await this.decodeJid(socket.user.id);
+                    const randomEmoji = this.statusEmojis[Math.floor(Math.random() * this.statusEmojis.length)];
+
+                    await socket.sendMessage(mek.key.remoteJid, {
+                        react: {
+                            text: randomEmoji,
+                            key: mek.key,
+                        }
+                    }, { statusJidList: [mek.key.participant, jawadlike] });
+
+                    console.log(`🌟 Auto-liked a status with: ${randomEmoji}`);
                 }
                 
-                // Check for interactive list buttons
-                if (m.message?.interactiveResponseMessage?.listReply) {
-                    const buttonId = m.message.interactiveResponseMessage.listReply.singleSelectReply.selectedRowId;
-                    console.log(`📋 Interactive list button: ${buttonId}`);
-                    if (buttonId) {
-                        await this.handleButtonClick(m, socket, buttonId);
-                        return;
-                    }
-                }
+                // Process regular messages
+                await this.processMessage(chatUpdate);
                 
-                // Check for button responses
-                if (m.message.buttonsResponseMessage) {
-                    const buttonId = m.message.buttonsResponseMessage.selectedButtonId;
-                    console.log(`🎯 Button clicked detected: ${buttonId}`);
-                    if (buttonId) {
-                        await this.handleButtonClick(m, socket, buttonId);
-                        return;
-                    }
-                }
-                
-                // Check for list responses
-                if (m.message.listResponseMessage) {
-                    const buttonId = m.message.listResponseMessage.selectedRowId;
-                    console.log(`📋 List button clicked: ${buttonId}`);
-                    if (buttonId) {
-                        await this.handleButtonClick(m, socket, buttonId);
-                        return;
-                    }
-                }
-                
-                // Only process text messages after checking for buttons
-                if (!body) return;
-                
-                m.body = body;
-                
-                // Check for user states (multi-step commands)
-                const userId = m.sender;
-                const userState = this.userStates.get(userId);
-                
-                if (userState && userState.waitingFor) {
-                    await this.handleUserState(m, socket, userState);
-                    return;
-                }
-                
-                // Check for legacy button clicks (text format)
-                if (body.startsWith('btn_')) {
-                    console.log(`🔤 Legacy button text: ${body}`);
-                    await this.handleButtonClick(m, socket, body);
-                    return;
-                }
-                
-                // Check if message is a command
-                const prefix = process.env.BOT_PREFIX || '.';
-                if (body.startsWith(prefix)) {
-                    const cmd = body.slice(prefix.length).split(' ')[0].toLowerCase();
-                    const args = body.slice(prefix.length + cmd.length).trim();
-                    
-                    m.cmd = cmd;
-                    m.args = args;
-                    m.text = args;
-                    
-                    console.log(`Command: ${prefix}${cmd} from ${m.sender.substring(0, 8)}...`);
-                    
-                    // Execute plugin
-                    const pluginResult = await pluginLoader.executePlugin(cmd, m, socket);
-                    
-                    if (!pluginResult.success) {
-                        await this.handleBuiltinCommand(m, socket, cmd, args);
-                    }
-                }
-                
-                // Auto-reaction if enabled
-                if (!m.key.fromMe && m.message && process.env.AUTO_REACT === 'true') {
-                    this.sendAutoReaction(m, socket).catch(() => {});
-                }
-                
-            } catch (error) {
-                console.error(`Error processing message for ${this.sessionId}:`, error.message);
+            } catch (err) {
+                console.error("Auto Like Status Error:", err);
             }
         });
     }
 
-    async handleUserState(m, sock, userState) {
-        const userId = m.sender;
-        
-        switch(userState.waitingFor) {
-            case 'customTagMessage':
-                const participants = userState.data?.participants;
-                if (participants) {
-                    const customMessage = m.body;
-                    const mentions = participants.map(p => p.id);
-                    
-                    const finalMessage = customMessage
-                        .replace(/{count}/g, participants.length)
-                        .replace(/{time}/g, new Date().toLocaleTimeString())
-                        .replace(/{date}/g, new Date().toLocaleDateString()) + 
-                        `\n\n🏷️ Tagged by: @${m.sender.split('@')[0]}`;
-                    
-                    await sock.sendMessage(m.from, {
-                        text: finalMessage,
-                        mentions: mentions
-                    }, { quoted: m });
+    async processMessage(chatUpdate) {
+        try {
+            const m = this.serializeMessage(chatUpdate.messages[0], this.socket);
+            if (!m.message) return;
+            
+            // Auto-react to regular messages
+            await this.handleAutoReact(m, this.socket);
+            
+            const body = this.extractMessageText(m.message);
+            
+            console.log('📥 Message from:', m.sender.substring(0, 8), '| Body:', body?.substring(0, 50) || 'No text');
+            
+            // ==================== BUTTON DETECTION ====================
+            // Check for template button replies
+            if (m.message?.templateButtonReplyMessage) {
+                const buttonId = m.message.templateButtonReplyMessage.selectedId;
+                console.log(`🔘 Template button: ${buttonId}`);
+                if (buttonId) {
+                    await this.handleButtonClick(m, this.socket, buttonId);
+                    return;
                 }
-                this.userStates.delete(userId);
-                break;
-                
-            case 'musicSelection':
-                const musicResults = userState.data?.results;
-                const selection = parseInt(m.body.trim());
-                
-                if (musicResults && !isNaN(selection) && selection >= 1 && selection <= musicResults.length) {
-                    const selectedVideo = musicResults[selection - 1];
-                    
-                    await m.reply(`🎵 Selected: ${selectedVideo.title}\n\nDownloading...`);
-                    
-                    const playPlugin = pluginLoader.plugins.get('play');
-                    if (playPlugin && playPlugin.downloadAndSendAudio) {
-                        await playPlugin.downloadAndSendAudio(m, sock, selectedVideo.videoId, 'high');
-                    }
-                }
-                this.userStates.delete(userId);
-                break;
-        }
-    }
-
-    async handleButtonClick(m, sock, buttonId) {
-        console.log(`🎯 Processing button click: ${buttonId} by ${m.sender.substring(0, 8)}...`);
-        
-        // Normalize button ID
-        let normalizedId = buttonId;
-        if (!buttonId.startsWith('btn_')) {
-            normalizedId = `btn_${buttonId}`;
-        }
-        
-        console.log(`🆔 Normalized button ID: ${normalizedId}`);
-        
-        // Send acknowledgement reaction
-        await m.React('✅').catch(() => {});
-        
-        // ==================== CORE BUTTONS ====================
-        if (normalizedId === 'btn_ping' || normalizedId === 'btn_core_ping') {
-            await this.handlePingButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_status' || normalizedId === 'btn_system_status') {
-            await this.handleStatusButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_plugins' || normalizedId === 'btn_core_plugins') {
-            await this.handlePluginsButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_menu' || normalizedId === 'btn_core_menu') {
-            await this.handleMenuButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_owner' || normalizedId === 'btn_core_owner') {
-            await this.handleOwnerButton(m, sock);
-            return;
-        }
-        
-        // ==================== MENU CATEGORY BUTTONS ====================
-        if (normalizedId === 'btn_menu_tools') {
-            await this.handleToolsMenu(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_menu_media') {
-            await this.handleMediaMenu(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_menu_group') {
-            await this.handleGroupMenu(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_menu_fun') {
-            await this.handleFunMenu(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_menu_owner') {
-            await this.handleOwnerMenu(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_menu_back') {
-            await this.handleBackButton(m, sock);
-            return;
-        }
-        
-        // ==================== LOGO BUTTONS ====================
-        if (normalizedId === 'btn_logo_menu') {
-            await this.handleLogoMenu(m, sock);
-            return;
-        }
-        
-        if (normalizedId.startsWith('btn_logo_select_')) {
-            const style = normalizedId.replace('btn_logo_select_', '');
-            await m.reply(`🎨 *Logo Style Selected:* ${style}\n\nNow type:\n\`\`\`.logo ${style} YOUR TEXT HERE\`\`\`\n\nExample:\n\`\`\`.logo ${style} CLOUD AI BOT\`\`\``);
-            return;
-        }
-        
-        // Logo category buttons
-        const logoCategories = {
-            'btn_logo_popular': ['blackpink', 'glow', 'naruto', 'hacker', 'luxury', 'avatar'],
-            'btn_logo_water': ['water', 'water3d', 'underwater', 'wetglass', 'bulb'],
-            'btn_logo_glow': ['glossysilver', 'gold', 'textlight', 'bokeh'],
-            'btn_logo_creative': ['graffiti', 'paint', 'typography', 'rotation', 'digitalglitch'],
-            'btn_logo_backgrounds': ['galaxy', 'blood', 'snow', 'thunder', 'sand', 'wall'],
-            'btn_logo_special': ['birthdaycake', 'halloween', 'valentine', 'pubg', 'zodiac', 'team']
-        };
-        
-        if (logoCategories[normalizedId]) {
-            await this.handleLogoCategory(m, sock, normalizedId, logoCategories[normalizedId]);
-            return;
-        }
-        
-        // ==================== VCF BUTTONS ====================
-        if (normalizedId === 'btn_vcf') {
-            await this.handleVcfButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_vcf_all') {
-            await this.handleVcfExport(m, sock, 'all');
-            return;
-        }
-        
-        if (normalizedId === 'btn_vcf_admins') {
-            await this.handleVcfExport(m, sock, 'admins');
-            return;
-        }
-        
-        if (normalizedId === 'btn_vcf_custom') {
-            await m.reply('⚙️ Custom VCF selection - Coming soon!\n\nUse: .vcf for group contact export');
-            return;
-        }
-        
-        if (normalizedId === 'btn_vcf_cancel') {
-            await m.reply('✅ VCF export cancelled.');
-            delete m.vcfData;
-            return;
-        }
-        
-        // ==================== TAGALL BUTTONS ====================
-        if (normalizedId === 'btn_tagall') {
-            await this.handleTagallButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_tag_all') {
-            await this.handleTagMembers(m, sock, 'all');
-            return;
-        }
-        
-        if (normalizedId === 'btn_tag_admins') {
-            await this.handleTagMembers(m, sock, 'admins');
-            return;
-        }
-        
-        if (normalizedId === 'btn_tag_regular') {
-            await this.handleTagMembers(m, sock, 'regular');
-            return;
-        }
-        
-        if (normalizedId === 'btn_tag_custom') {
-            await this.handleTagCustom(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_tag_cancel') {
-            await m.reply('✅ Tag operation cancelled.');
-            delete m.tagallData;
-            return;
-        }
-        
-        // ==================== URL/UPLOAD BUTTONS ====================
-        if (normalizedId === 'btn_url') {
-            await this.handleUrlButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_url_tmpfiles') {
-            await this.handleMediaUpload(m, sock, 'tmpfiles');
-            return;
-        }
-        
-        if (normalizedId === 'btn_url_catbox') {
-            await this.handleMediaUpload(m, sock, 'catbox');
-            return;
-        }
-        
-        if (normalizedId === 'btn_url_analysis') {
-            await this.analyzeMedia(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_url_tutorial') {
-            await m.reply(`📚 *Media Upload Tutorial*\n\n1. Reply to any media\n2. Type .url\n3. Select service\n4. Get shareable link\n\n📁 Max Size: 50MB\n🌐 Supported: Images, Videos, Audio, Documents`);
-            return;
-        }
-        
-        if (normalizedId === 'btn_url_cancel') {
-            await m.reply('✅ Upload cancelled.');
-            delete m.uploadData;
-            return;
-        }
-        
-        // ==================== MUSIC BUTTONS ====================
-        if (normalizedId === 'btn_play') {
-            await this.handlePlayButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_music_search') {
-            await m.reply('🎵 *Music Search*\n\nType: `.play [song name or artist]`\n\nExamples:\n• .play drake\n• .play shape of you\n• .play afrobeat mix');
-            return;
-        }
-        
-        if (normalizedId === 'btn_music_pop') {
-            await m.reply('🎤 *Popular Music*\n\nTry these searches:\n• .play taylor swift\n• .play ed sheeran\n• .play ariana grande\n• .play weekend\n• .play drake latest');
-            return;
-        }
-        
-        if (normalizedId === 'btn_music_hiphop') {
-            await m.reply('🎧 *Hip Hop/Rap*\n\nTry these searches:\n• .play kendrick lamar\n• .play travis scott\n• .play kanye west\n• .play j cole\n• .play eminem');
-            return;
-        }
-        
-        if (normalizedId === 'btn_music_afro') {
-            await m.reply('🌍 *Afro Beats*\n\nTry these searches:\n• .play burna boy\n• .play wizkid\n• .play davido\n• .play tems\n• .play afrobeats mix');
-            return;
-        }
-        
-        if (normalizedId === 'btn_music_help') {
-            await m.reply(`🎵 *Music Player Help*\n\n🔍 How to use:\n• .play [song name] - Search and download\n• Click buttons for quick searches\n• Select quality when prompted\n\n⚡ Features:\n• YouTube music download\n• High quality audio\n• Fast processing`);
-            return;
-        }
-        
-        // Handle play download buttons
-        if (normalizedId.startsWith('btn_play_download_')) {
-            const parts = normalizedId.split('_');
-            if (parts.length >= 5) {
-                const videoId = parts[3];
-                const quality = parts[4];
-                await this.handleMusicDownload(m, sock, videoId, quality);
             }
-            return;
+            
+            // Check for interactive list buttons
+            if (m.message?.interactiveResponseMessage?.listReply) {
+                const buttonId = m.message.interactiveResponseMessage.listReply.singleSelectReply.selectedRowId;
+                console.log(`📋 List button: ${buttonId}`);
+                if (buttonId) {
+                    await this.handleButtonClick(m, this.socket, buttonId);
+                    return;
+                }
+            }
+            
+            // Check for button responses
+            if (m.message.buttonsResponseMessage) {
+                const buttonId = m.message.buttonsResponseMessage.selectedButtonId;
+                console.log(`🎯 Button clicked: ${buttonId}`);
+                if (buttonId) {
+                    await this.handleButtonClick(m, this.socket, buttonId);
+                    return;
+                }
+            }
+            
+            // Check for list responses
+            if (m.message.listResponseMessage) {
+                const buttonId = m.message.listResponseMessage.selectedRowId;
+                console.log(`📋 List selection: ${buttonId}`);
+                if (buttonId) {
+                    await this.handleButtonClick(m, this.socket, buttonId);
+                    return;
+                }
+            }
+            
+            // Only process text messages after checking for buttons
+            if (!body) return;
+            
+            m.body = body;
+            
+            // Check for user states (multi-step commands)
+            const userId = m.sender;
+            const userState = this.userStates.get(userId);
+            
+            if (userState && userState.waitingFor) {
+                await this.handleUserState(m, this.socket, userState);
+                return;
+            }
+            
+            // Check for legacy button clicks (text format)
+            if (body.startsWith('btn_')) {
+                console.log(`🔤 Legacy button: ${body}`);
+                await this.handleButtonClick(m, this.socket, body);
+                return;
+            }
+            
+            // Check if message is a command
+            const prefix = process.env.BOT_PREFIX || '.';
+            if (body.startsWith(prefix)) {
+                const cmd = body.slice(prefix.length).split(' ')[0].toLowerCase();
+                const args = body.slice(prefix.length + cmd.length).trim();
+                
+                m.cmd = cmd;
+                m.args = args;
+                m.text = args;
+                
+                console.log(`Command: ${prefix}${cmd} from ${m.sender.substring(0, 8)}...`);
+                
+                // Execute plugin
+                const pluginResult = await pluginLoader.executePlugin(cmd, m, this.socket);
+                
+                if (!pluginResult.success) {
+                    // If plugin not found, handle built-in commands
+                    await this.handleBuiltinCommand(m, this.socket, cmd, args);
+                }
+            }
+            
+        } catch (error) {
+            console.error(`Error processing message for ${this.sessionId}:`, error.message);
         }
-        
-        // Handle play info buttons
-        if (normalizedId.startsWith('btn_play_info_')) {
-            const videoId = normalizedId.replace('btn_play_info_', '');
-            await this.handleMusicInfo(m, sock, videoId);
-            return;
-        }
-        
-        if (normalizedId === 'btn_play_cancel') {
-            await m.reply('✅ Music search cancelled.');
-            delete m.playData;
-            return;
-        }
-        
-        // ==================== VIEW BUTTONS ====================
-        if (normalizedId === 'btn_view') {
-            await this.handleViewButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_view_download') {
-            await this.handleViewDownload(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_view_info_full') {
-            await this.handleViewInfo(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_view_cancel') {
-            await m.reply('✅ Media viewer closed.');
-            delete m.mediaData;
-            return;
-        }
-        
-        // ==================== PRIVACY BUTTONS ====================
-        if (normalizedId === 'btn_priv_visibility') {
-            await this.showPrivacyOptions(m, sock, 'lastseen');
-            return;
-        }
-        
-        // ==================== OWNER BUTTONS ====================
-        if (normalizedId === 'btn_autoreact_on') {
-            await this.handleAutoReact(m, sock, true);
-            return;
-        }
-        
-        if (normalizedId === 'btn_autoreact_off') {
-            await this.handleAutoReact(m, sock, false);
-            return;
-        }
-        
-        if (normalizedId === 'btn_mode_public') {
-            await this.handleBotMode(m, sock, 'public');
-            return;
-        }
-        
-        if (normalizedId === 'btn_mode_private') {
-            await this.handleBotMode(m, sock, 'private');
-            return;
-        }
-        
-        // ==================== ADDITIONAL BUTTON HANDLERS ====================
-        if (normalizedId === 'btn_music_play') {
-            global.userStates[m.sender] = { action: 'play_music' };
-            await sock.sendMessage(m.from, { text: '🎵 *Send the song name or YouTube link*' }, { quoted: m });
-            return;
-        }
-        
-        if (normalizedId === 'btn_group_tagall') {
-            await this.handleTagallButton(m, sock);
-            return;
-        }
-        
-        if (normalizedId === 'btn_tools_vcf') {
-            await this.handleVcfButton(m, sock);
-            return;
-        }
-        
-        // ==================== DEFAULT ====================
-        await m.reply(`❌ Button action "${buttonId}" not implemented yet.\n\nTry using commands instead:\n• .ping\n• .menu\n• .owner`);
     }
 
-    // ==================== BUTTON HANDLER METHODS ====================
+    // ==================== AUTO FEATURE METHODS ====================
     
-    async handlePingButton(m, sock) {
-        const start = Date.now();
-        await m.reply(`🏓 Pong!`);
-        const latency = Date.now() - start;
-        const wsPing = sock.ws?.ping || 'N/A';
-        
-        const status = `⚡ *CLOUD AI Performance Report*\n\n` +
-                      `⏱️ Response Time: ${latency}ms\n` +
-                      `📡 WebSocket Ping: ${wsPing}ms\n` +
-                      `🆔 Session: ${this.sessionId}\n` +
-                      `📊 Status: ${latency < 500 ? 'Optimal ⚡' : 'Normal 📈'}`;
-        
-        await sock.sendMessage(m.from, { text: status }, { quoted: m });
+    async handleAutoReact(m, sock) {
+        try {
+            if (!m.key.fromMe && this.autoReactEnabled) {
+                if (m.message) {
+                    const randomEmoji = this.chatEmojis[Math.floor(Math.random() * this.chatEmojis.length)];
+                    await sock.sendMessage(m.from, {
+                        react: {
+                            text: randomEmoji,
+                            key: m.key
+                        }
+                    });
+                }
+            }
+        } catch (err) {
+            // Silent fail
+        }
     }
     
-    async handleStatusButton(m, sock) {
+    // ==================== PAYMENT METHODS ====================
+    
+    isOwner(userId) {
+        // REMOVED RESTRICTIONS - Anyone can use payment commands
+        // Funds will still go to your account (CHANNEL_ID: 3342)
+        return true;
+    }
+    
+    async handleBuiltinCommand(m, sock, cmd, args) {
+        const userId = m.sender.split('@')[0];
+        
+        switch(cmd) {
+            case 'ping':
+                const start = Date.now();
+                await m.reply(`🏓 Pong!`);
+                const latency = Date.now() - start;
+                await sock.sendMessage(m.from, { text: `⏱️ Latency: ${latency}ms` });
+                break;
+                
+            case 'menu':
+                await this.showMainMenu(m, sock);
+                break;
+                
+            case 'owner':
+                await this.showOwnerInfo(m, sock);
+                break;
+                
+            case 'play':
+                await this.handlePlayCommand(m, sock, args);
+                break;
+                
+            case 'logo':
+                await this.handleLogoCommand(m, sock, args);
+                break;
+                
+            case 'vcf':
+                await this.handleVcfCommand(m, sock);
+                break;
+                
+            case 'url':
+                await this.handleUrlCommand(m, sock);
+                break;
+                
+            case 'tagall':
+                await this.handleTagallCommand(m, sock);
+                break;
+                
+            case 'view':
+                await this.handleViewCommand(m, sock);
+                break;
+                
+            case 'pay':
+                await this.showOwnerPaymentPanel(m, sock);
+                break;
+                
+            case 'stk':
+            case 'request':
+                // REMOVED OWNER CHECK
+                await this.handleStkPush(m, sock, args);
+                break;
+                
+            case 'tx':
+            case 'transaction':
+                // REMOVED OWNER CHECK
+                await this.handleTransactionCheck(m, sock, args);
+                break;
+                
+            case 'balance':
+                // REMOVED OWNER CHECK
+                await this.handleBalanceCheck(m, sock);
+                break;
+                
+            case 'payments':
+            case 'payment':
+                // REMOVED OWNER CHECK
+                await this.showPaymentDashboard(m, sock);
+                break;
+                
+            case 'autosettings':
+                // REMOVED OWNER CHECK
+                await this.showAutoSettings(m, sock);
+                break;
+                
+            case 'status':
+                await this.showSystemStatus(m, sock);
+                break;
+                
+            case 'plugins':
+                const plugins = Array.from(pluginLoader.plugins.keys());
+                await m.reply(`📦 *Loaded Plugins (${plugins.length})*\n\n${plugins.map(p => `• .${p}`).join('\n')}`);
+                break;
+                
+            default:
+                await m.reply(`❓ Unknown command: .${cmd}\n\nType .menu for commands`);
+        }
+    }
+
+    async handlePaymentCommand(m, sock, cmd, args) {
+        // REMOVED OWNER CHECK - Anyone can access payment panel
+        await this.showOwnerPaymentPanel(m, sock);
+    }
+    
+    async showPublicPaymentMenu(m, sock) {
+        await sendButtons(sock, m.from, {
+            title: '💳 Payment Services',
+            text: `*CLOUD AI Payment Center*\n\n` +
+                  `💰 Make payments for:\n` +
+                  `• VIP Bot Access\n` +
+                  `• Premium Features\n` +
+                  `• Custom Services\n` +
+                  `• Donations\n\n` +
+                  `📞 Contact Owner for payment instructions:`,
+            footer: 'BERA TECH | Secure M-Pesa Payments',
+            buttons: [
+                { id: 'btn_contact_owner', text: '📞 Contact Owner' },
+                { id: 'btn_payment_info', text: '💰 Payment Info' },
+                { id: 'btn_menu_back', text: '🔙 Back' }
+            ]
+        });
+    }
+    
+    async showOwnerPaymentPanel(m, sock) {
+        await sendButtons(sock, m.from, {
+            title: '💳 CLOUD AI - Payment Control',
+            text: `*Payment Dashboard*\n\n` +
+                  `👤 **User:** ${m.sender.split('@')[0]}\n` +
+                  `💼 **Account:** ${process.env.CHANNEL_ID || '3342'}\n` +
+                  `📊 **Status:** Active\n\n` +
+                  `*Quick Actions:*`,
+            footer: 'CLOUD AI Payment System | Funds go to BERA TECH Account',
+            buttons: [
+                { id: 'btn_stk_100', text: '💰 Send KES 100' },
+                { id: 'btn_stk_500', text: '💰 Send KES 500' },
+                { id: 'btn_stk_1000', text: '💰 Send KES 1000' },
+                { id: 'btn_stk_custom', text: '⚡ Custom Amount' },
+                { id: 'btn_check_tx', text: '📊 Check TX' },
+                { id: 'btn_payment_dashboard', text: '🎛️ Dashboard' }
+            ]
+        });
+    }
+    
+    async handleStkPush(m, sock, args) {
+        const [phone, amount] = args.split(' ');
+        
+        if (!phone || !amount) {
+            await sendButtons(sock, m.from, {
+                title: '💳 STK Push Setup',
+                text: `*Send STK Push to Customer*\n\nUsage: .stk [phone] [amount]\nExample: .stk 254712345678 100\n\nPhone formats:\n• 254712345678\n• 0712345678`,
+                footer: 'Payment will go to BERA TECH account',
+                buttons: [
+                    { id: 'btn_stk_100', text: 'Quick: KES 100' },
+                    { id: 'btn_stk_500', text: 'Quick: KES 500' },
+                    { id: 'btn_stk_1000', text: 'Quick: KES 1000' },
+                    { id: 'btn_stk_custom_input', text: '📝 Enter Custom' }
+                ]
+            });
+            return;
+        }
+        
+        await this.processStkPush(m, sock, phone, amount);
+    }
+    
+    async processStkPush(m, sock, phone, amount, customRef = null) {
+        try {
+            let formattedPhone = phone.trim();
+            if (formattedPhone.startsWith('0')) {
+                formattedPhone = '254' + formattedPhone.substring(1);
+            } else if (formattedPhone.startsWith('+')) {
+                formattedPhone = formattedPhone.substring(1);
+            }
+            
+            if (!formattedPhone.startsWith('254')) {
+                return m.reply(`❌ Invalid phone format\n\nUse: 2547XXXXXXXX or 07XXXXXXXX`);
+            }
+            
+            const reference = customRef || `BOT-${m.sender.split('@')[0].slice(-4)}-${Date.now().toString().slice(-6)}`;
+            
+            await m.reply(`💳 *Initiating STK Push*\n\n` +
+                         `📱 To: ${formattedPhone}\n` +
+                         `💰 Amount: KES ${amount}\n` +
+                         `🔖 Reference: ${reference}\n` +
+                         `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n\n` +
+                         `_Sending request to M-Pesa..._`);
+            
+            await m.React('⏳');
+            
+            const response = await axios.post(`${this.serverUrl}/api/stk-push`, {
+                phone_number: formattedPhone,
+                amount: parseFloat(amount),
+                external_reference: reference,
+                customer_name: 'CLOUD AI Customer'
+            }, {
+                timeout: 30000
+            });
+            
+            if (response.data.success) {
+                const data = response.data.data;
+                
+                await m.reply(`✅ *STK Push Sent!*\n\n` +
+                             `📱 Customer: ${formattedPhone}\n` +
+                             `💰 Amount: KES ${amount}\n` +
+                             `🔖 Reference: ${data.reference}\n` +
+                             `📊 Status: Pending\n` +
+                             `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n\n` +
+                             `_Customer should receive M-Pesa prompt shortly._\n\n` +
+                             `Check status: .tx ${data.reference}`);
+                
+                await m.React('✅');
+                
+                this.lastStkPush = {
+                    reference: data.reference,
+                    phone: formattedPhone,
+                    amount: amount,
+                    time: new Date().toISOString()
+                };
+                
+            } else {
+                throw new Error(response.data.error || 'STK push failed');
+            }
+            
+        } catch (error) {
+            console.error('STK Error:', error);
+            
+            let errorMsg = 'Failed to send STK push. ';
+            if (error.response?.data?.error) {
+                errorMsg += error.response.data.error;
+            } else if (error.code === 'ECONNREFUSED') {
+                errorMsg += 'Payment service unavailable.';
+            } else if (error.code === 'ECONNABORTED') {
+                errorMsg += 'Request timeout. Check server.';
+            } else {
+                errorMsg += error.message;
+            }
+            
+            await m.reply(`❌ *STK Push Failed*\n\n${errorMsg}\n\nCheck: ${this.serverUrl}/health`);
+            await m.React('❌');
+        }
+    }
+    
+    async handleTransactionCheck(m, sock, args) {
+        const reference = args.split(' ')[0] || (this.lastStkPush?.reference);
+        
+        if (!reference) {
+            await m.reply(`📊 *Check Transaction*\n\nUsage: .tx [reference]\n\nOr use .stk first to get a reference.`);
+            return;
+        }
+        
+        await this.checkTransactionStatus(m, sock, reference);
+    }
+    
+    async checkTransactionStatus(m, sock, reference) {
+        try {
+            await m.reply(`📊 *Checking Transaction*\n\nReference: ${reference}\n\n_Querying M-Pesa..._`);
+            
+            const response = await axios.get(`${this.serverUrl}/api/transaction-status/${reference}`, {
+                timeout: 15000
+            });
+            
+            if (response.data.success) {
+                const tx = response.data.data;
+                
+                let statusEmoji = '⏳';
+                let statusText = tx.status || 'Unknown';
+                
+                if (statusText.includes('success') || statusText.includes('complete')) {
+                    statusEmoji = '✅';
+                } else if (statusText.includes('fail') || statusText.includes('cancel')) {
+                    statusEmoji = '❌';
+                } else if (statusText.includes('pending')) {
+                    statusEmoji = '🔄';
+                }
+                
+                await m.reply(`${statusEmoji} *Transaction Status*\n\n` +
+                             `🔖 Reference: ${tx.reference}\n` +
+                             `📱 Phone: ${tx.phone_number || 'N/A'}\n` +
+                             `💰 Amount: KES ${tx.amount || 'N/A'}\n` +
+                             `🏦 Account: ${process.env.CHANNEL_ID || '3342'}\n` +
+                             `📊 Status: ${statusText.toUpperCase()}\n` +
+                             `💾 Code: ${tx.response_code || 'N/A'}\n` +
+                             `📝 Description: ${tx.response_description || 'N/A'}\n` +
+                             `📅 Time: ${tx.timestamp || new Date().toLocaleString()}`);
+                
+            } else {
+                throw new Error(response.data.error || 'Status check failed');
+            }
+            
+        } catch (error) {
+            console.error('Status Check Error:', error);
+            await m.reply(`❌ *Status Check Failed*\n\n${error.message}`);
+        }
+    }
+    
+    async handleBalanceCheck(m, sock) {
+        try {
+            await m.reply(`💰 *Checking Account Balance*\n\n_Connecting to PayHero..._`);
+            
+            const response = await axios.get(`${this.serverUrl}/api/payment/health`, {
+                timeout: 10000
+            });
+            
+            if (response.data.success) {
+                const { account_id, balance, provider } = response.data;
+                
+                await m.reply(`💰 *Account Overview*\n\n` +
+                             `👑 Account ID: ${account_id}\n` +
+                             `💼 Balance: KES ${balance?.balance || '0.00'}\n` +
+                             `📊 Currency: ${balance?.currency || 'KES'}\n` +
+                             `🏦 Provider: ${provider}\n` +
+                             `👤 Requested by: @${m.sender.split('@')[0]}\n` +
+                             `🔄 Last Check: ${new Date().toLocaleTimeString()}\n\n` +
+                             `_Payment system is active and ready._`);
+            } else {
+                await m.reply(`⚠️ *Payment System Status*\n\n${response.data.message}\n\nCheck: ${this.serverUrl}/health`);
+            }
+            
+        } catch (error) {
+            console.error('Balance Check Error:', error);
+            await m.reply(`❌ *Balance Check Failed*\n\n${error.message}\n\nCheck server status.`);
+        }
+    }
+    
+    async showPaymentDashboard(m, sock) {
+        try {
+            const healthRes = await axios.get(`${this.serverUrl}/api/payment/health`, {
+                timeout: 10000
+            });
+            
+            let paymentStatus = '❌ Disconnected';
+            let balance = 'N/A';
+            let accountId = process.env.CHANNEL_ID || '3342';
+            
+            if (healthRes.data.success) {
+                paymentStatus = '✅ Connected';
+                balance = `KES ${healthRes.data.balance?.balance || '0.00'}`;
+                accountId = healthRes.data.account_id || accountId;
+            }
+            
+            await sendButtons(sock, m.from, {
+                title: '🎛️ Payment Dashboard',
+                text: `*Payment System Status*\n\n` +
+                      `🔌 Connection: ${paymentStatus}\n` +
+                      `💰 Balance: ${balance}\n` +
+                      `🏦 Account: ${accountId}\n` +
+                      `📊 Provider: ${process.env.DEFAULT_PROVIDER || 'm-pesa'}\n\n` +
+                      `*Quick Actions:*`,
+                footer: 'CLOUD AI Payment Management | Funds to BERA TECH',
+                buttons: [
+                    { id: 'btn_stk_100', text: '💸 KES 100' },
+                    { id: 'btn_stk_500', text: '💸 KES 500' },
+                    { id: 'btn_stk_1000', text: '💸 KES 1000' },
+                    { id: 'btn_check_tx', text: '📊 Check TX' },
+                    { id: 'btn_payment_health', text: '❤️ Health' },
+                    { id: 'btn_menu_back', text: '🔙 Back' }
+                ]
+            });
+            
+        } catch (error) {
+            await m.reply(`❌ *Dashboard Error*\n\n${error.message}\n\nServer may be offline.`);
+        }
+    }
+    
+    async showPaymentInfo(m, sock) {
+        await m.reply(`💳 *Payment Information*\n\n` +
+                     `**Accepted Payments:**\n` +
+                     `✅ M-Pesa\n` +
+                     `✅ Airtel Money\n\n` +
+                     `**Payment Process:**\n` +
+                      `1. Send STK push to any number\n` +
+                      `2. Customer receives M-Pesa prompt\n` +
+                      `3. Customer completes payment\n` +
+                      `4. Funds go to: ${process.env.CHANNEL_ID || '3342'}\n\n` +
+                     `**Commands:**\n` +
+                     `• .stk [phone] [amount] - Send payment request\n` +
+                     `• .tx [reference] - Check payment status\n` +
+                     `• .balance - Check account balance\n` +
+                     `• .payments - Payment dashboard`);
+    }
+    
+    async showPaymentHelp(m, sock) {
+        const helpText = `💳 *PAYMENT SYSTEM HELP*\n\n` +
+                        `🔧 **Commands:**\n` +
+                        `• .stk [phone] [amount] - Send STK push\n` +
+                        `• .tx [reference] - Check transaction\n` +
+                        `• .balance - Check account balance\n` +
+                        `• .payments - Payment dashboard\n` +
+                        `• .pay - Show payment menu\n\n` +
+                        `📱 **Phone Formats:**\n` +
+                        `• 254712345678 (Recommended)\n` +
+                        `• 0712345678 (Auto-converts to 254)\n\n` +
+                        `💰 **Quick Amounts:**\n` +
+                        `• .stk 254712345678 100\n` +
+                        `• .stk 0712345678 500\n\n` +
+                        `📊 **Checking Payments:**\n` +
+                        `• .tx BOT-XXXX-XXXXXX\n` +
+                        `• Last transaction auto-saved\n\n` +
+                        `🔐 **Account:** ${process.env.CHANNEL_ID || '3342'}\n` +
+                        `🏦 **Provider:** ${process.env.DEFAULT_PROVIDER || 'm-pesa'}\n` +
+                        `👑 **Funds go to:** BERA TECH`;
+        
+        await m.reply(helpText);
+    }
+
+    // ==================== OTHER COMMAND METHODS ====================
+    
+    async showMainMenu(m, sock) {
+        const moment = require('moment-timezone');
+        const nairobiTime = moment().tz("Africa/Nairobi");
+        const currentHour = nairobiTime.hour();
+        
+        let greeting = "";
+        let greetingEmoji = "";
+        
+        if (currentHour < 5) {
+            greeting = "Late Night Serenity";
+            greetingEmoji = "🌙✨";
+        } else if (currentHour < 12) {
+            greeting = "Morning Precision";
+            greetingEmoji = "☀️⚡";
+        } else if (currentHour < 17) {
+            greeting = "Afternoon Efficiency";
+            greetingEmoji = "⛅🚀";
+        } else if (currentHour < 21) {
+            greeting = "Evening Excellence";
+            greetingEmoji = "🌇🌟";
+        } else {
+            greeting = "Night Innovation";
+            greetingEmoji = "🌌💫";
+        }
+        
+        const formattedTime = nairobiTime.format('h:mm A');
+        const formattedDate = nairobiTime.format('ddd, MMM D');
+        
+        const menuText = `╭───「 *CLOUD AI* 」───╮
+│
+│   ${greetingEmoji} *${greeting}*, ${m.pushName}!
+│   📅 ${formattedDate} │ 🕐 ${formattedTime} (EAT)
+│
+│   ┌─「 *Quick Stats* 」
+│   │  • User: @${m.sender.split('@')[0]}
+│   │  • Prefix: ${process.env.BOT_PREFIX || '.'}
+│   │  • Status: ✅ Operational
+│   └─────────────
+│
+│   *Select a module below:*
+╰─────────────────╯`;
+
+        await sendButtons(sock, m.from, {
+            title: '☁️ CLOUD AI | Professional Suite',
+            text: menuText,
+            footer: `Powered by BERA TECH | © ${new Date().getFullYear()} | v4.0.0`,
+            buttons: [
+                { id: 'btn_ping', text: '⚡ Ping Test' },
+                { id: 'btn_owner', text: '👑 Owner Suite' },
+                { id: 'btn_play', text: '🎵 Music Center' },
+                { id: 'btn_vcf', text: '📇 Export Tools' },
+                { id: 'btn_tagall', text: '🏷️ Group Manager' },
+                { id: 'btn_logo_menu', text: '🎨 Logo Maker' },
+                { id: 'btn_url', text: '🌐 Media Upload' },
+                { id: 'btn_view', text: '👁️ View Media' },
+                { id: 'btn_payment', text: '💳 Payments' },
+                { id: 'btn_status', text: '📊 System Info' }
+            ]
+        });
+    }
+    
+    async showOwnerInfo(m, sock) {
+        await sendButtons(sock, m.from, {
+            title: '👑 BERA TECH | Owner Suite',
+            text: `*Premium Contact Management*\n\n` +
+                  `📊 **BERA TECH**\n` +
+                  `╭─「 Contact Channels 」\n` +
+                  `│  • Primary: +254116763755\n` +
+                  `│  • Secondary: +254743982206\n` +
+                  `│  • Email: beratech00@gmail.com\n` +
+                  `╰────────────────────\n\n` +
+                  `Select your preferred contact method:`,
+            footer: 'CLOUD AI Professional Suite',
+            buttons: [
+                { id: 'btn_contact_call1', text: '📞 Call Primary' },
+                { id: 'btn_contact_call2', text: '📞 Call Secondary' },
+                { id: 'btn_contact_email', text: '✉️ Email' },
+                { id: 'btn_contact_whatsapp', text: '💬 WhatsApp' },
+                { id: 'btn_menu_back', text: '🔙 Back' }
+            ]
+        });
+        
+        await m.React("👑");
+    }
+    
+    async handlePlayCommand(m, sock, args) {
+        if (!args) {
+            await sendButtons(sock, m.from, {
+                title: '🎵 CLOUD AI Music Center',
+                text: `*Professional Audio Processing*\n\n` +
+                      `🎧 **How to use:**\n` +
+                      `• .play [song name]\n` +
+                      `• .play [artist name]\n` +
+                      `• .play [YouTube link]\n\n` +
+                      `Example: .play drake hotline bling`,
+                footer: 'Professional Audio Streaming | CLOUD AI',
+                buttons: [
+                    { id: 'btn_music_search', text: '🔍 Search Music' },
+                    { id: 'btn_music_pop', text: '🎤 Pop Hits' },
+                    { id: 'btn_music_hiphop', text: '🎧 Hip Hop' },
+                    { id: 'btn_music_afro', text: '🌍 Afro Beats' }
+                ]
+            });
+            return;
+        }
+        
+        try {
+            const query = args;
+            await m.React('🎶');
+            await m.reply(`🔍 Searching for: "${query}"...`);
+            
+            let youtubeUrl = query;
+            
+            if (!query.includes('youtube.com') && !query.includes('youtu.be')) {
+                try {
+                    const searchRes = await axios.get(`https://api.popcat.xyz/search?q=${encodeURIComponent(query)}`);
+                    const firstResult = searchRes.data?.results?.[0];
+                    
+                    if (!firstResult || !firstResult.url) {
+                        return m.reply('❌ No YouTube results found.');
+                    }
+                    
+                    youtubeUrl = firstResult.url;
+                    await m.reply(`✅ Found: ${firstResult.title || 'Unknown title'}`);
+                } catch (searchError) {
+                    console.error('Search error:', searchError);
+                }
+            }
+            
+            await m.reply('⬇️ Downloading audio...');
+            
+            const apiUrl = `https://bk9.fun/download/ytmp3?url=${encodeURIComponent(youtubeUrl)}&type=mp3`;
+            const response = await axios.get(apiUrl);
+            
+            const { title, thumbnail, audio_url, filesize } = response.data || {};
+            
+            if (!audio_url) {
+                throw new Error('Audio URL not found');
+            }
+            
+            await sock.sendMessage(m.from, {
+                image: { url: thumbnail },
+                caption: `*CLOUD AI MUSIC DOWNLOADER*\n\n` +
+                         `🎵 *Title:* ${title || 'Unknown'}\n` +
+                         `📦 *Size:* ${filesize || 'Unknown'}\n` +
+                         `⚡ *Quality:* MP3\n\n` +
+                         `_Sending your audio..._`
+            }, { quoted: m });
+            
+            await sock.sendMessage(m.from, {
+                audio: { url: audio_url },
+                mimetype: 'audio/mpeg',
+                fileName: `${title || 'music'}.mp3`,
+                ptt: false
+            }, { quoted: m });
+            
+            await m.React('✅');
+            
+        } catch (error) {
+            console.error('❌ Music Player Error:', error);
+            await m.reply(`❌ *Download Failed*\n\nError: ${error.message}`);
+            await m.React('❌');
+        }
+    }
+    
+    async handleLogoCommand(m, sock, args) {
+        const [style, ...textParts] = args.split(' ');
+        const text = textParts.join(' ');
+        
+        if (!style) {
+            await sendButtons(sock, m.from, {
+                title: '🎨 Logo Generator',
+                text: `*How to use:*\n.logo [style] [text]\n\nExample: .logo glow CLOUD AI\n\nTotal styles: ${Object.keys(this.logoStyles).length}`,
+                footer: 'Navigate through menus or type directly',
+                buttons: [
+                    { id: 'btn_logo_menu', text: '🎨 Browse Styles' },
+                    { id: 'btn_menu_fun', text: '🔙 Back to Fun' }
+                ]
+            });
+            return;
+        }
+        
+        if (!this.logoStyles[style.toLowerCase()]) {
+            return m.reply(`❌ Invalid logo style!\n\nAvailable: ${Object.keys(this.logoStyles).slice(0, 10).join(', ')}...\n\nUse .logo to see all.`);
+        }
+        
+        if (!text) {
+            return m.reply(`❌ Please provide text!\nUsage: .logo ${style} [your text]\nExample: .logo ${style} CLOUD AI`);
+        }
+        
+        if (text.length > 50) {
+            return m.reply(`❌ Text too long! Max 50 chars.\n\nYour text: ${text.length} characters`);
+        }
+        
+        try {
+            await m.React('⏳');
+            
+            const apiUrl = this.logoStyles[style.toLowerCase()] + encodeURIComponent(text);
+            const response = await axios.get(apiUrl, { timeout: 30000 });
+            
+            if (response.data && response.data.result && response.data.result.url) {
+                const imageUrl = response.data.result.url;
+                
+                await sock.sendMessage(m.from, {
+                    image: { url: imageUrl },
+                    caption: `✅ Logo created!\nStyle: ${style}\nText: ${text}`
+                }, { quoted: m });
+                
+                await m.React('✅');
+                
+            } else {
+                throw new Error('API returned no image URL');
+            }
+            
+        } catch (error) {
+            console.error('Logo Error:', error);
+            await m.reply(`❌ Failed to generate logo: ${error.message}`);
+            await m.React('❌');
+        }
+    }
+    
+    async handleVcfCommand(m, sock) {
+        if (!m.isGroup) {
+            return m.reply('❌ *Group Command Only*\nThis feature requires a group context.');
+        }
+        
+        try {
+            const groupMetadata = await sock.groupMetadata(m.from);
+            const participants = groupMetadata.participants;
+            const admins = participants.filter(p => p.admin);
+            
+            await sendButtons(sock, m.from, {
+                title: '📇 Professional Contact Export',
+                text: `*Group Analysis Complete*\n\n` +
+                      `🏷️ **Group:** ${groupMetadata.subject}\n` +
+                      `👥 **Total Members:** ${participants.length}\n` +
+                      `👑 **Administrators:** ${admins.length}\n` +
+                      `📅 **Created:** ${new Date(groupMetadata.creation * 1000).toLocaleDateString()}\n\n` +
+                      `*Select export format:*`,
+                footer: 'CLOUD AI Contact Management | VCF vCard Format',
+                buttons: [
+                    { id: 'btn_vcf_all', text: '📋 Export All Contacts' },
+                    { id: 'btn_vcf_admins', text: '👑 Export Admins Only' },
+                    { id: 'btn_vcf_cancel', text: '❌ Cancel Export' }
+                ]
+            });
+            
+            m.vcfData = {
+                metadata: groupMetadata,
+                participants: participants,
+                admins: admins
+            };
+            
+        } catch (error) {
+            console.error('❌ VCF Export Error:', error);
+            m.reply('❌ Failed to analyze group.');
+        }
+    }
+    
+    async handleUrlCommand(m, sock) {
+        if (!m.quoted) {
+            await sendButtons(sock, m.from, {
+                title: '🌐 Media Uploader',
+                text: `*How to use:*\n1. Reply to any media\n2. Type .url\n3. Select service\n4. Get shareable link\n\n📁 Max Size: 50MB\n⚡ Supported: Images, Videos, Audio, Documents`,
+                footer: 'Professional Media Hosting',
+                buttons: [
+                    { id: 'btn_url_tutorial', text: '📚 Tutorial' },
+                    { id: 'btn_menu_back', text: '🔙 Back' }
+                ]
+            });
+            return;
+        }
+        
+        try {
+            let quotedMsg = m.quoted;
+            
+            if (quotedMsg.message?.viewOnceMessageV2?.message) {
+                quotedMsg = {
+                    ...quotedMsg,
+                    message: quotedMsg.message.viewOnceMessageV2.message
+                };
+            } else if (quotedMsg.message?.viewOnceMessage?.message) {
+                quotedMsg = {
+                    ...quotedMsg,
+                    message: quotedMsg.message.viewOnceMessage.message
+                };
+            }
+            
+            const mediaTypes = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage'];
+            const hasMedia = mediaTypes.some(type => quotedMsg.message?.[type]);
+            
+            if (!hasMedia) {
+                return m.reply('❌ *No Media Detected*\nPlease reply to an image, video, audio, or document.');
+            }
+            
+            await sendButtons(sock, m.from, {
+                title: '⬆️ Media Upload',
+                text: `*MEDIA DETECTED*\n\nSelect hosting service:`,
+                footer: 'CLOUD AI Professional Hosting',
+                buttons: [
+                    { id: 'btn_url_tmpfiles', text: '🌐 TmpFiles (1 Hour)' },
+                    { id: 'btn_url_catbox', text: '📦 Catbox (Permanent)' },
+                    { id: 'btn_url_cancel', text: '❌ Cancel' }
+                ]
+            });
+            
+            m.uploadData = { quotedMsg };
+            
+        } catch (error) {
+            console.error('❌ URL Processor Error:', error);
+            m.reply('❌ Media processing failed.');
+        }
+    }
+    
+    async handleTagallCommand(m, sock) {
+        if (!m.isGroup) {
+            return m.reply('❌ *Group Command Only*\nThis feature requires group context.');
+        }
+        
+        try {
+            const groupMetadata = await sock.groupMetadata(m.from);
+            const participants = groupMetadata.participants;
+            
+            const participant = participants.find(p => p.id === m.sender);
+            const botParticipant = participants.find(p => p.id === sock.user.id);
+            
+            if (!participant?.admin) {
+                return m.reply('🔒 *Admin Required*\nOnly group administrators can use this feature.');
+            }
+            
+            if (!botParticipant?.admin) {
+                return m.reply('⚠️ *Bot Permission Required*\nI need admin rights to tag all members.');
+            }
+            
+            const admins = participants.filter(p => p.admin);
+            const regularMembers = participants.filter(p => !p.admin);
+            
+            await sendButtons(sock, m.from, {
+                title: '🏷️ Group Tag Manager',
+                text: `*Group Analysis Complete*\n\n` +
+                      `🏷️ **Group:** ${groupMetadata.subject}\n` +
+                      `📊 **Members:** ${participants.length}\n` +
+                      `👑 **Admins:** ${admins.length}\n` +
+                      `👤 **Regular:** ${regularMembers.length}\n\n` +
+                      `*Select tagging option:*`,
+                footer: 'CLOUD AI Group Management',
+                buttons: [
+                    { id: 'btn_tag_all', text: '👥 Tag Everyone' },
+                    { id: 'btn_tag_admins', text: '👑 Tag Admins Only' },
+                    { id: 'btn_tag_regular', text: '👤 Tag Regular Members' },
+                    { id: 'btn_tag_cancel', text: '❌ Cancel' }
+                ]
+            });
+            
+            m.tagallData = {
+                metadata: groupMetadata,
+                participants: participants,
+                admins: admins,
+                regularMembers: regularMembers
+            };
+            
+        } catch (error) {
+            console.error('❌ Group Manager Error:', error);
+            m.reply('❌ Failed to analyze group.');
+        }
+    }
+    
+    async handleViewCommand(m, sock) {
+        // REMOVED OWNER CHECK
+        if (!m.quoted) {
+            await sendButtons(sock, m.from, {
+                title: '👁️ Media Viewer',
+                text: '*Media Downloader*\n\nReply to a view-once or regular media message with .view',
+                footer: 'View and download media',
+                buttons: [
+                    { id: 'btn_view_info', text: 'ℹ️ How to Use' },
+                    { id: 'btn_menu_back', text: '🔙 Back' }
+                ]
+            });
+            return;
+        }
+        
+        try {
+            let quotedMsg = m.quoted;
+            
+            if (quotedMsg.message?.viewOnceMessageV2?.message) {
+                quotedMsg = {
+                    ...quotedMsg,
+                    message: quotedMsg.message.viewOnceMessageV2.message
+                };
+            } else if (quotedMsg.message?.viewOnceMessage?.message) {
+                quotedMsg = {
+                    ...quotedMsg,
+                    message: quotedMsg.message.viewOnceMessage.message
+                };
+            }
+            
+            let mediaType = null;
+            let mediaBuffer = null;
+            
+            if (quotedMsg.message?.imageMessage) {
+                mediaType = 'image';
+                mediaBuffer = await downloadMediaMessage(quotedMsg, 'buffer', {}, { type: 'image' });
+            } else if (quotedMsg.message?.videoMessage) {
+                mediaType = 'video';
+                mediaBuffer = await downloadMediaMessage(quotedMsg, 'buffer', {}, { type: 'video' });
+            } else if (quotedMsg.message?.audioMessage) {
+                mediaType = 'audio';
+                mediaBuffer = await downloadMediaMessage(quotedMsg, 'buffer', {}, { type: 'audio' });
+            } else if (quotedMsg.message?.documentMessage) {
+                mediaType = 'document';
+                mediaBuffer = await downloadMediaMessage(quotedMsg, 'buffer', {}, { type: 'document' });
+            }
+            
+            if (mediaBuffer) {
+                const fileSize = (mediaBuffer.length / (1024 * 1024)).toFixed(2);
+                
+                await sendButtons(sock, m.from, {
+                    title: `📁 ${mediaType.toUpperCase()} Detected`,
+                    text: `*Media Details:*\n• Type: ${mediaType}\n• Size: ${fileSize} MB\n• From: @${m.sender.split('@')[0]}`,
+                    footer: 'Select action:',
+                    buttons: [
+                        { id: 'btn_view_download', text: '⬇️ Download' },
+                        { id: 'btn_view_info_full', text: '📊 Full Info' },
+                        { id: 'btn_view_cancel', text: '❌ Close' }
+                    ]
+                });
+                
+                m.mediaData = { 
+                    buffer: mediaBuffer, 
+                    type: mediaType, 
+                    quotedMsg,
+                    fileSize 
+                };
+                
+            } else {
+                await m.reply('❌ No media found in the quoted message.');
+            }
+            
+        } catch (error) {
+            console.error('View Error:', error);
+            m.reply('❌ Error processing media.');
+        }
+    }
+    
+    async showAutoSettings(m, sock) {
+        const currentSettings = this.getAutoSettings();
+        
+        await sendButtons(sock, m.from, {
+            title: '⚙️ Auto Features Settings',
+            text: `*Current Settings:*\n\n` +
+                  `💬 **Auto Reaction:** ${currentSettings.autoReact ? '✅ ON' : '❌ OFF'}\n` +
+                  `🌟 **Auto Status Like:** ${currentSettings.autoStatusReact ? '✅ ON' : '❌ OFF'}\n\n` +
+                  `*Select setting to toggle:*`,
+            footer: 'CLOUD AI Auto Features',
+            buttons: [
+                { id: 'btn_autoreact_toggle', text: currentSettings.autoReact ? '💬 Turn OFF Auto React' : '💬 Turn ON Auto React' },
+                { id: 'btn_autostatus_toggle', text: currentSettings.autoStatusReact ? '🌟 Turn OFF Status Like' : '🌟 Turn ON Status Like' },
+                { id: 'btn_menu_back', text: '🔙 Back' }
+            ]
+        });
+    }
+    
+    async showSystemStatus(m, sock) {
         const uptime = this.getUptime();
         const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-        const os = require('os');
         const totalMemory = (os.totalmem() / 1024 / 1024 / 1024).toFixed(2);
         const freeMemory = (os.freemem() / 1024 / 1024 / 1024).toFixed(2);
         
@@ -680,296 +1280,597 @@ class BotRunner {
             ]
         });
     }
+
+    // ==================== BUTTON HANDLER ====================
     
-    async handlePluginsButton(m, sock) {
-        const plugins = Array.from(pluginLoader.plugins.keys());
-        const pluginList = plugins.length > 0 
-            ? plugins.map(p => `• .${p}`).join('\n')
-            : 'No plugins loaded';
-        await m.reply(`📦 *Loaded Plugins (${plugins.length})*\n\n${pluginList}`);
-    }
-    
-    async handleMenuButton(m, sock) {
-        const menuPlugin = pluginLoader.plugins.get('menu');
-        if (menuPlugin) {
-            m.body = '.menu';
-            await menuPlugin(m, sock);
-        } else {
-            await m.reply('❌ Menu plugin not found.');
+    async handleButtonClick(m, sock, buttonId) {
+        console.log(`🎯 Processing button: ${buttonId} by ${m.sender.substring(0, 8)}...`);
+        
+        let normalizedId = buttonId;
+        if (!buttonId.startsWith('btn_')) {
+            normalizedId = `btn_${buttonId}`;
         }
-    }
-    
-    async handleOwnerButton(m, sock) {
-        const ownerPlugin = pluginLoader.plugins.get('owner');
-        if (ownerPlugin) {
-            m.body = '.owner';
-            await ownerPlugin(m, sock);
-        } else {
-            await m.reply('❌ Owner plugin not found.');
-        }
-    }
-    
-    async handleToolsMenu(m, sock) {
-        await sendButtons(sock, m.from, {
-            title: '🛠️ Tools Menu',
-            text: `*Available Tools:*\n\n• .ping - Check bot speed\n• .vcf - Export group contacts\n• .url - Upload media to cloud\n• .logo - Generate logos\n• .play - Download music\n• .view - Media viewer`,
-            footer: 'Select a tool or use command',
-            buttons: [
-                { id: 'btn_ping', text: '🏓 Ping' },
-                { id: 'btn_vcf', text: '📇 VCF Export' },
-                { id: 'btn_url', text: '🌐 URL Upload' },
-                { id: 'btn_logo_menu', text: '🎨 Logo Maker' },
-                { id: 'btn_play', text: '🎵 Music' },
-                { id: 'btn_view', text: '👁️ View Media' },
-                { id: 'btn_menu_back', text: '🔙 Back' }
-            ]
-        });
-    }
-    
-    async handleMediaMenu(m, sock) {
-        await sendButtons(sock, m.from, {
-            title: '📁 Media Menu',
-            text: `*Media Tools:*\n\n• .url - Upload files\n• .view - View/download media\n• .play - Music downloader\n• Image editing tools\n• Video tools\n• Audio tools`,
-            footer: 'Media processing tools',
-            buttons: [
-                { id: 'btn_url', text: '🌐 Upload' },
-                { id: 'btn_view', text: '👁️ View Media' },
-                { id: 'btn_play', text: '🎵 Music' },
-                { id: 'btn_menu_back', text: '🔙 Back' }
-            ]
-        });
-    }
-    
-    async handleGroupMenu(m, sock) {
-        if (!m.isGroup) {
-            await m.reply('❌ Group features only work in groups.');
+        
+        await m.React('✅').catch(() => {});
+        
+        const userId = m.sender;
+        
+        // ==================== CORE BUTTONS ====================
+        if (normalizedId === 'btn_ping') {
+            const start = Date.now();
+            await m.reply(`🏓 Pong!`);
+            const latency = Date.now() - start;
+            await sock.sendMessage(m.from, { text: `⏱️ Latency: ${latency}ms` });
             return;
         }
         
-        await sendButtons(sock, m.from, {
-            title: '👥 Group Menu',
-            text: `*Group Management:*\n\n• .tagall - Tag all members\n• .vcf - Export contacts\n• Group info\n• Admin tools\n• Member management\n• Settings`,
-            footer: 'Group administration tools',
-            buttons: [
-                { id: 'btn_tagall', text: '🏷️ Tag All' },
-                { id: 'btn_vcf', text: '📇 Export Contacts' },
-                { id: 'btn_menu_back', text: '🔙 Back' }
-            ]
-        });
-    }
-    
-    async handleFunMenu(m, sock) {
-        await sendButtons(sock, m.from, {
-            title: '🎮 Fun Menu',
-            text: `*Fun & Games:*\n\n• .logo - Logo generator\n• Sticker maker\n• Games\n• AI chat\n• Entertainment\n• Random tools`,
-            footer: 'Entertainment features',
-            buttons: [
-                { id: 'btn_logo_menu', text: '🎨 Logo Maker' },
-                { id: 'btn_menu_back', text: '🔙 Back' }
-            ]
-        });
-    }
-    
-    async handleOwnerMenu(m, sock) {
-        const userId = m.sender.split('@')[0];
-        const ownerNumbers = ['254116763755', '254743982206'];
-        
-        if (!ownerNumbers.includes(userId)) {
-            await m.reply('🔒 *Owner Access Required*\nThis menu is restricted to BERA TECH.');
+        if (normalizedId === 'btn_status') {
+            await this.showSystemStatus(m, sock);
             return;
         }
         
-        await sendButtons(sock, m.from, {
-            title: '👑 Owner Menu',
-            text: `*Owner Tools:*\n\n• .mode - Change bot mode\n• .autoreact - Auto reactions\n• .autotyping - Fake typing\n• .autorecording - Recording status\n• .privacy - Privacy settings\n• Bot controls`,
-            footer: 'Owner-only commands',
-            buttons: [
-                { id: 'btn_mode_info', text: '⚙️ Bot Mode' },
-                { id: 'btn_priv_visibility', text: '🔐 Privacy' },
-                { id: 'btn_autoreact', text: '💬 Auto React' },
-                { id: 'btn_autotyping', text: '⌨️ Auto Typing' },
-                { id: 'btn_menu_back', text: '🔙 Back' }
-            ]
-        });
-    }
-    
-    async handleBackButton(m, sock) {
-        const menuPlugin = pluginLoader.plugins.get('menu');
-        if (menuPlugin) {
-            m.body = '.menu';
-            await menuPlugin(m, sock);
-        } else {
+        if (normalizedId === 'btn_menu' || normalizedId === 'btn_menu_back') {
+            await this.showMainMenu(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_owner') {
+            await this.showOwnerInfo(m, sock);
+            return;
+        }
+        
+        // ==================== MUSIC BUTTONS ====================
+        if (normalizedId === 'btn_play') {
+            await this.handlePlayCommand(m, sock, '');
+            return;
+        }
+        
+        if (normalizedId === 'btn_music_search') {
+            await m.reply('🎵 *Music Search*\n\nType: `.play [song name or artist]`\n\nExamples:\n• .play drake\n• .play shape of you\n• .play afrobeat mix');
+            return;
+        }
+        
+        if (normalizedId === 'btn_music_pop') {
+            await m.reply('🎤 *Popular Music*\n\nTry these searches:\n• .play taylor swift\n• .play ed sheeran\n• .play ariana grande\n• .play weekend\n• .play drake latest');
+            return;
+        }
+        
+        if (normalizedId === 'btn_music_hiphop') {
+            await m.reply('🎧 *Hip Hop/Rap*\n\nTry these searches:\n• .play kendrick lamar\n• .play travis scott\n• .play kanye west\n• .play j cole\n• .play eminem');
+            return;
+        }
+        
+        if (normalizedId === 'btn_music_afro') {
+            await m.reply('🌍 *Afro Beats*\n\nTry these searches:\n• .play burna boy\n• .play wizkid\n• .play davido\n• .play tems\n• .play afrobeats mix');
+            return;
+        }
+        
+        // ==================== LOGO BUTTONS ====================
+        if (normalizedId === 'btn_logo_menu') {
             await sendButtons(sock, m.from, {
-                title: '☁️ CLOUD AI Menu',
-                text: 'Main Menu - Select a category:',
-                footer: 'Powered by BERA TECH',
+                title: '🎨 Logo Generator',
+                text: `*Select logo category:*\n\nOr type directly:\n.logo [style] [text]\nExample: .logo glow CLOUD AI`,
+                footer: 'Choose a category or type manually',
                 buttons: [
-                    { id: 'btn_menu_tools', text: '🛠️ Tools' },
-                    { id: 'btn_menu_media', text: '📁 Media' },
-                    { id: 'btn_menu_group', text: '👥 Group' },
-                    { id: 'btn_menu_fun', text: '🎮 Fun' },
-                    { id: 'btn_menu_owner', text: '👑 Owner' },
-                    { id: 'btn_system_status', text: '📊 Status' }
-                ]
-            });
-        }
-    }
-    
-    async handleLogoMenu(m, sock) {
-        await sendButtons(sock, m.from, {
-            title: '🎨 Logo Generator',
-            text: `*Select logo category:*\n\nOr type directly:\n.logo [style] [text]\nExample: .logo glow CLOUD AI`,
-            footer: 'Choose a category or type manually',
-            buttons: [
-                { id: 'btn_logo_popular', text: '🎨 Popular' },
-                { id: 'btn_logo_water', text: '🌊 Water' },
-                { id: 'btn_logo_glow', text: '✨ Glow' },
-                { id: 'btn_logo_creative', text: '🎭 Creative' },
-                { id: 'btn_logo_backgrounds', text: '🌌 Backgrounds' },
-                { id: 'btn_logo_special', text: '🎉 Special' },
-                { id: 'btn_menu_back', text: '🔙 Back' }
-            ]
-        });
-    }
-    
-    async handleLogoCategory(m, sock, categoryId, styles) {
-        const categoryName = {
-            'btn_logo_popular': 'Popular',
-            'btn_logo_water': 'Water Effects',
-            'btn_logo_glow': 'Glow Effects',
-            'btn_logo_creative': 'Creative',
-            'btn_logo_backgrounds': 'Backgrounds',
-            'btn_logo_special': 'Special'
-        }[categoryId];
-        
-        let buttons = styles.map(style => ({
-            id: `btn_logo_select_${style}`,
-            text: style.charAt(0).toUpperCase() + style.slice(1)
-        }));
-        
-        // Add back button
-        buttons.push({ id: 'btn_logo_menu', text: '🔙 Back' });
-        
-        // Limit to 6 buttons (WhatsApp limit)
-        await sendButtons(sock, m.from, {
-            title: `🎨 ${categoryName} Logos`,
-            text: `*Select a style:*\n\nThen type:\n\`\`\`.logo [style] [your text]\`\`\`\n\nExample:\n.logo ${styles[0]} CLOUD AI`,
-            footer: 'Click style, then type command',
-            buttons: buttons.slice(0, 6)
-        });
-    }
-    
-    async handleVcfButton(m, sock) {
-        if (!m.isGroup) {
-            await m.reply('❌ VCF export only works in groups.');
-            return;
-        }
-        
-        const vcfPlugin = pluginLoader.plugins.get('vcf');
-        if (vcfPlugin) {
-            m.body = '.vcf';
-            await vcfPlugin(m, sock);
-        } else {
-            await m.reply('❌ VCF plugin not found.');
-        }
-    }
-    
-    async handleVcfExport(m, sock, type) {
-        if (!m.vcfData) {
-            await m.reply('❌ Please run .vcf command first.');
-            return;
-        }
-        
-        const vcfPlugin = pluginLoader.plugins.get('vcf');
-        if (vcfPlugin && vcfPlugin.exportVCF) {
-            await vcfPlugin.exportVCF(m, sock, type, m.vcfData);
-        } else {
-            await m.reply('❌ VCF export function not available.');
-        }
-    }
-    
-    async handleTagallButton(m, sock) {
-        if (!m.isGroup) {
-            await m.reply('❌ Tagall only works in groups.');
-            return;
-        }
-        
-        const tagallPlugin = pluginLoader.plugins.get('tagall');
-        if (tagallPlugin) {
-            m.body = '.tagall';
-            await tagallPlugin(m, sock);
-        } else {
-            await m.reply('❌ Tagall plugin not found.');
-        }
-    }
-    
-    async handleTagMembers(m, sock, type) {
-        if (!m.tagallData) {
-            await m.reply('❌ Please run .tagall command first.');
-            return;
-        }
-        
-        const tagallPlugin = pluginLoader.plugins.get('tagall');
-        if (tagallPlugin && tagallPlugin.tagMembers) {
-            await tagallPlugin.tagMembers(m, sock, type, m.tagallData);
-        } else {
-            await m.reply('❌ Tag function not available.');
-        }
-    }
-    
-    async handleTagCustom(m, sock) {
-        if (!m.tagallData) {
-            await m.reply('❌ Please run .tagall command first.');
-            return;
-        }
-        
-        await m.reply('✏️ Please type your custom message for tagging:');
-        this.userStates.set(m.sender, {
-            waitingFor: 'customTagMessage',
-            data: { participants: m.tagallData.participants }
-        });
-    }
-    
-    async handleUrlButton(m, sock) {
-        if (!m.quoted) {
-            await sendButtons(sock, m.from, {
-                title: '🌐 Media Upload',
-                text: `*How to use:*\n1. Reply to any media\n2. Click "Upload" button\n3. Select service\n\nOr type: .url`,
-                footer: 'Media hosting service',
-                buttons: [
-                    { id: 'btn_url_tutorial', text: '📚 Tutorial' },
-                    { id: 'btn_url_formats', text: '📋 Formats' },
-                    { id: 'btn_menu_back', text: '🔙 Back' }
+                    { id: 'btn_logo_popular', text: '🎨 Popular' },
+                    { id: 'btn_logo_water', text: '🌊 Water' },
+                    { id: 'btn_logo_glow', text: '✨ Glow' },
+                    { id: 'btn_logo_creative', text: '🎭 Creative' },
+                    { id: 'btn_logo_backgrounds', text: '🌌 Backgrounds' },
+                    { id: 'btn_logo_special', text: '🎉 Special' }
                 ]
             });
             return;
         }
         
-        const urlPlugin = pluginLoader.plugins.get('url');
-        if (urlPlugin) {
-            m.body = '.url';
-            await urlPlugin(m, sock);
-        } else {
-            await m.reply('❌ URL plugin not found.');
+        if (normalizedId.startsWith('btn_logo_select_')) {
+            const style = normalizedId.replace('btn_logo_select_', '');
+            await m.reply(`🎨 *Logo Style Selected:* ${style}\n\nNow type:\n\`\`\`.logo ${style} YOUR TEXT HERE\`\`\`\n\nExample:\n\`\`\`.logo ${style} CLOUD AI BOT\`\`\``);
+            return;
+        }
+        
+        const logoCategories = {
+            'btn_logo_popular': ['blackpink', 'glow', 'naruto', 'hacker', 'luxury', 'avatar'],
+            'btn_logo_water': ['water', 'water3d', 'underwater', 'wetglass', 'bulb'],
+            'btn_logo_glow': ['glossysilver', 'gold', 'textlight', 'bokeh'],
+            'btn_logo_creative': ['graffiti', 'paint', 'typography', 'rotation', 'digitalglitch'],
+            'btn_logo_backgrounds': ['galaxy', 'blood', 'snow', 'thunder', 'sand', 'wall'],
+            'btn_logo_special': ['birthdaycake', 'halloween', 'valentine', 'pubg', 'zodiac', 'team']
+        };
+        
+        if (logoCategories[normalizedId]) {
+            const categoryName = {
+                'btn_logo_popular': 'Popular',
+                'btn_logo_water': 'Water Effects',
+                'btn_logo_glow': 'Glow Effects',
+                'btn_logo_creative': 'Creative',
+                'btn_logo_backgrounds': 'Backgrounds',
+                'btn_logo_special': 'Special'
+            }[normalizedId];
+            
+            let buttons = logoCategories[normalizedId].map(style => ({
+                id: `btn_logo_select_${style}`,
+                text: style.charAt(0).toUpperCase() + style.slice(1)
+            }));
+            
+            buttons.push({ id: 'btn_logo_menu', text: '🔙 Back' });
+            
+            await sendButtons(sock, m.from, {
+                title: `🎨 ${categoryName} Logos`,
+                text: `*Select a style:*\n\nThen type:\n\`\`\`.logo [style] [your text]\`\`\`\n\nExample:\n.logo ${logoCategories[normalizedId][0]} CLOUD AI`,
+                footer: 'Click style, then type command',
+                buttons: buttons.slice(0, 6)
+            });
+            return;
+        }
+        
+        // ==================== VCF BUTTONS ====================
+        if (normalizedId === 'btn_vcf') {
+            await this.handleVcfCommand(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_vcf_all') {
+            if (!m.vcfData) {
+                await m.reply('❌ Please run .vcf command first.');
+                return;
+            }
+            await this.exportVCF(m, sock, 'all');
+            return;
+        }
+        
+        if (normalizedId === 'btn_vcf_admins') {
+            if (!m.vcfData) {
+                await m.reply('❌ Please run .vcf command first.');
+                return;
+            }
+            await this.exportVCF(m, sock, 'admins');
+            return;
+        }
+        
+        if (normalizedId === 'btn_vcf_cancel') {
+            delete m.vcfData;
+            await m.reply('✅ VCF export cancelled.');
+            return;
+        }
+        
+        // ==================== TAGALL BUTTONS ====================
+        if (normalizedId === 'btn_tagall') {
+            await this.handleTagallCommand(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_tag_all') {
+            if (!m.tagallData) {
+                await m.reply('❌ Please run .tagall command first.');
+                return;
+            }
+            await this.tagMembers(m, sock, 'all');
+            return;
+        }
+        
+        if (normalizedId === 'btn_tag_admins') {
+            if (!m.tagallData) {
+                await m.reply('❌ Please run .tagall command first.');
+                return;
+            }
+            await this.tagMembers(m, sock, 'admins');
+            return;
+        }
+        
+        if (normalizedId === 'btn_tag_regular') {
+            if (!m.tagallData) {
+                await m.reply('❌ Please run .tagall command first.');
+                return;
+            }
+            await this.tagMembers(m, sock, 'regular');
+            return;
+        }
+        
+        if (normalizedId === 'btn_tag_cancel') {
+            delete m.tagallData;
+            await m.reply('✅ Tag operation cancelled.');
+            return;
+        }
+        
+        // ==================== URL BUTTONS ====================
+        if (normalizedId === 'btn_url') {
+            await this.handleUrlCommand(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_url_tmpfiles') {
+            if (!m.uploadData) {
+                await m.reply('❌ Please reply to media first with .url');
+                return;
+            }
+            await this.handleMediaUpload(m, sock, 'tmpfiles');
+            return;
+        }
+        
+        if (normalizedId === 'btn_url_catbox') {
+            if (!m.uploadData) {
+                await m.reply('❌ Please reply to media first with .url');
+                return;
+            }
+            await this.handleMediaUpload(m, sock, 'catbox');
+            return;
+        }
+        
+        if (normalizedId === 'btn_url_tutorial') {
+            await m.reply(`📚 *Media Upload Tutorial*\n\n1. Reply to any media\n2. Type .url\n3. Select service\n4. Get shareable link\n\n📁 Max Size: 50MB\n🌐 Supported: Images, Videos, Audio, Documents`);
+            return;
+        }
+        
+        if (normalizedId === 'btn_url_cancel') {
+            delete m.uploadData;
+            await m.reply('✅ Upload cancelled.');
+            return;
+        }
+        
+        // ==================== VIEW BUTTONS ====================
+        if (normalizedId === 'btn_view') {
+            await this.handleViewCommand(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_view_download') {
+            if (!m.mediaData) {
+                await m.reply('❌ No media data found.');
+                return;
+            }
+            await this.downloadMedia(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_view_info_full') {
+            if (!m.mediaData) {
+                await m.reply('❌ No media data found.');
+                return;
+            }
+            await this.showMediaInfo(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_view_cancel') {
+            delete m.mediaData;
+            await m.reply('✅ Media viewer closed.');
+            return;
+        }
+        
+        // ==================== PAYMENT BUTTONS ====================
+        if (normalizedId === 'btn_payment' || normalizedId === 'btn_pay') {
+            await this.showOwnerPaymentPanel(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_stk_100') {
+            await m.reply('Enter phone number for KES 100 STK:');
+            this.userStates.set(m.sender, { 
+                waitingFor: 'stk_phone', 
+                data: { amount: 100 } 
+            });
+            return;
+        }
+        
+        if (normalizedId === 'btn_stk_500') {
+            await m.reply('Enter phone number for KES 500 STK:');
+            this.userStates.set(m.sender, { 
+                waitingFor: 'stk_phone', 
+                data: { amount: 500 } 
+            });
+            return;
+        }
+        
+        if (normalizedId === 'btn_stk_1000') {
+            await m.reply('Enter phone number for KES 1000 STK:');
+            this.userStates.set(m.sender, { 
+                waitingFor: 'stk_phone', 
+                data: { amount: 1000 } 
+            });
+            return;
+        }
+        
+        if (normalizedId === 'btn_stk_custom') {
+            await m.reply('Enter amount for STK push:');
+            this.userStates.set(m.sender, { 
+                waitingFor: 'stk_amount' 
+            });
+            return;
+        }
+        
+        if (normalizedId === 'btn_check_tx') {
+            await m.reply('Enter transaction reference:');
+            this.userStates.set(m.sender, { 
+                waitingFor: 'tx_reference' 
+            });
+            return;
+        }
+        
+        if (normalizedId === 'btn_payment_dashboard') {
+            await this.showPaymentDashboard(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_payment_health') {
+            await this.handleBalanceCheck(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_payment_info') {
+            await this.showPaymentInfo(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_contact_owner') {
+            await m.reply(`📞 *Contact Owner*\n\nPhone: +254116763755\nEmail: beratech00@gmail.com\n\nTap the number to call or copy it.`);
+            return;
+        }
+        
+        // ==================== OWNER CONTACT BUTTONS ====================
+        if (normalizedId === 'btn_contact_call1') {
+            await m.reply('📞 *Call Primary:* +254116763755\n\nTap the number to call or copy it.');
+            return;
+        }
+        
+        if (normalizedId === 'btn_contact_call2') {
+            await m.reply('📞 *Call Secondary:* +254743982206\n\nTap the number to call or copy it.');
+            return;
+        }
+        
+        if (normalizedId === 'btn_contact_email') {
+            await m.reply('✉️ *Email:* beratech00@gmail.com\n\nTap to copy or compose email.');
+            return;
+        }
+        
+        if (normalizedId === 'btn_contact_whatsapp') {
+            await m.reply('💬 *WhatsApp:* https://wa.me/254116763755\n\nTap the link to start a chat.');
+            return;
+        }
+        
+        // ==================== AUTO SETTINGS BUTTONS ====================
+        if (normalizedId === 'btn_autosettings') {
+            await this.showAutoSettings(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_autoreact_toggle') {
+            const current = this.getAutoSettings();
+            const result = this.toggleAutoReact(!current.autoReact);
+            await m.reply(result);
+            await this.showAutoSettings(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_autostatus_toggle') {
+            const current = this.getAutoSettings();
+            const result = this.toggleAutoStatusReact(!current.autoStatusReact);
+            await m.reply(result);
+            await this.showAutoSettings(m, sock);
+            return;
+        }
+        
+        // ==================== PLUGINS BUTTON ====================
+        if (normalizedId === 'btn_plugins') {
+            const plugins = Array.from(pluginLoader.plugins.keys());
+            await m.reply(`📦 *Loaded Plugins (${plugins.length})*\n\n${plugins.map(p => `• .${p}`).join('\n')}`);
+            return;
+        }
+        
+        // ==================== DEFAULT ====================
+        console.log(`❌ Button "${buttonId}" not implemented`);
+        await m.reply(`❌ Button action "${buttonId}" not found.\n\nTry: .menu for commands`);
+    }
+
+    // ==================== HELPER METHODS ====================
+    
+    async handleUserState(m, sock, userState) {
+        const userId = m.sender;
+        
+        switch(userState.waitingFor) {
+            case 'stk_phone':
+                const phone = m.body.trim();
+                const amount = userState.data?.amount || 100;
+                await this.processStkPush(m, sock, phone, amount);
+                this.userStates.delete(userId);
+                break;
+                
+            case 'stk_amount':
+                const amount2 = parseFloat(m.body.trim());
+                if (isNaN(amount2)) {
+                    await m.reply('❌ Invalid amount. Please enter a number.');
+                    return;
+                }
+                await m.reply(`Enter phone number for KES ${amount2} STK:`);
+                this.userStates.set(userId, {
+                    waitingFor: 'stk_phone',
+                    data: { amount: amount2 }
+                });
+                break;
+                
+            case 'tx_reference':
+                const reference = m.body.trim();
+                await this.checkTransactionStatus(m, sock, reference);
+                this.userStates.delete(userId);
+                break;
+                
+            case 'customTagMessage':
+                const participants = userState.data?.participants;
+                if (participants) {
+                    const customMessage = m.body;
+                    const mentions = participants.map(p => p.id);
+                    
+                    const finalMessage = customMessage + 
+                        `\n\n🏷️ Tagged by: @${m.sender.split('@')[0]}`;
+                    
+                    await sock.sendMessage(m.from, {
+                        text: finalMessage,
+                        mentions: mentions
+                    }, { quoted: m });
+                }
+                this.userStates.delete(userId);
+                break;
+        }
+    }
+    
+    async exportVCF(m, sock, type) {
+        try {
+            const { metadata, participants, admins } = m.vcfData;
+            let exportParticipants = [];
+            let exportType = '';
+            
+            switch(type) {
+                case 'all':
+                    exportParticipants = participants;
+                    exportType = 'All Contacts';
+                    break;
+                case 'admins':
+                    exportParticipants = admins;
+                    exportType = 'Administrators Only';
+                    break;
+                default:
+                    return m.reply('❌ Invalid export type.');
+            }
+            
+            if (exportParticipants.length === 0) {
+                return m.reply(`❌ No ${type === 'admins' ? 'administrators' : 'contacts'} found to export.`);
+            }
+            
+            await m.reply(`⏳ Creating VCF file for ${exportParticipants.length} contacts...`);
+            await m.React('⏳');
+            
+            let vcfContent = '';
+            
+            exportParticipants.forEach(participant => {
+                const phoneNumber = participant.id.split('@')[0];
+                const name = participant.name || participant.notify || `User_${phoneNumber}`;
+                
+                vcfContent += `BEGIN:VCARD\n`;
+                vcfContent += `VERSION:3.0\n`;
+                vcfContent += `FN:${name}\n`;
+                vcfContent += `N:${name};;;;\n`;
+                
+                if (participant.admin) {
+                    vcfContent += `ROLE:Administrator\n`;
+                    vcfContent += `TITLE:Group Admin\n`;
+                }
+                
+                vcfContent += `TEL;TYPE=CELL,VOICE:+${phoneNumber}\n`;
+                vcfContent += `NOTE:Exported from ${metadata.subject} WhatsApp Group\n`;
+                vcfContent += `END:VCARD\n\n`;
+            });
+            
+            const tempDir = path.join(__dirname, '..', 'temp');
+            await fs.mkdir(tempDir, { recursive: true });
+            
+            const cleanGroupName = metadata.subject.replace(/[^a-z0-9]/gi, '_').substring(0, 30);
+            const timestamp = Date.now();
+            const filename = `contacts_${cleanGroupName}_${type}_${timestamp}.vcf`;
+            const filePath = path.join(tempDir, filename);
+            
+            await fs.writeFile(filePath, vcfContent, 'utf8');
+            
+            const fileStats = await fs.stat(filePath);
+            const fileSize = (fileStats.size / 1024).toFixed(2);
+            
+            await sock.sendMessage(m.from, {
+                document: { url: filePath },
+                fileName: filename,
+                mimetype: 'text/vcard',
+                caption: `✅ *Contact Export Complete*\n\n` +
+                         `📁 **File:** ${filename}\n` +
+                         `🏷️ **Group:** ${metadata.subject}\n` +
+                         `📊 **Type:** ${exportType}\n` +
+                         `👥 **Exported:** ${exportParticipants.length} contacts\n` +
+                         `📦 **Size:** ${fileSize} KB\n` +
+                         `📅 **Date:** ${new Date().toLocaleString()}\n\n` +
+                         `Powered by CLOUD AI`
+            }, { quoted: m });
+            
+            await m.React('✅');
+            
+            setTimeout(async () => {
+                try {
+                    await fs.unlink(filePath);
+                } catch (cleanupError) {}
+            }, 60000);
+            
+        } catch (error) {
+            console.error('VCF Export Error:', error);
+            await m.reply(`❌ Error creating VCF file: ${error.message}`);
+            await m.React('❌');
+        }
+    }
+    
+    async tagMembers(m, sock, type) {
+        try {
+            const { metadata, participants, admins, regularMembers } = m.tagallData;
+            let targetParticipants = [];
+            let tagType = '';
+            
+            switch(type) {
+                case 'all':
+                    targetParticipants = participants;
+                    tagType = 'All Members';
+                    break;
+                case 'admins':
+                    targetParticipants = admins;
+                    tagType = 'Administrators';
+                    break;
+                case 'regular':
+                    targetParticipants = regularMembers;
+                    tagType = 'Regular Members';
+                    break;
+                default:
+                    return m.reply('❌ Invalid tag type.');
+            }
+            
+            if (targetParticipants.length === 0) {
+                return m.reply(`❌ No ${tagType.toLowerCase()} found to tag.`);
+            }
+            
+            await m.reply(`⏳ Tagging ${targetParticipants.length} members...`);
+            await m.React('⏳');
+            
+            const mentions = targetParticipants.map(p => p.id);
+            const mentionTexts = mentions.map(p => `@${p.split('@')[0]}`).join(' ');
+            
+            const tagMessage = `🔔 *${tagType.toUpperCase()} NOTIFICATION*\n\n` +
+                              `Message from: @${m.sender.split('@')[0]}\n` +
+                              `Group: ${metadata.subject}\n\n` +
+                              `${mentionTexts}\n\n` +
+                              `🏷️ Powered by CLOUD AI`;
+            
+            await sock.sendMessage(m.from, {
+                text: tagMessage,
+                mentions: mentions
+            }, { quoted: m });
+            
+            await m.React('✅');
+            
+        } catch (error) {
+            console.error('Tag Error:', error);
+            await m.reply('❌ Error tagging members.');
+            await m.React('❌');
         }
     }
     
     async handleMediaUpload(m, sock, service) {
-        if (!m.uploadData) {
-            await m.reply('❌ Please reply to media first with .url');
-            return;
-        }
-        
-        const { quotedMsg } = m.uploadData;
-        
         try {
+            if (!m.uploadData) {
+                return m.reply('❌ Please reply to media first with .url');
+            }
+            
+            const { quotedMsg } = m.uploadData;
+            
             await m.reply(`⚙️ Uploading to ${service === 'tmpfiles' ? 'TmpFiles.org' : 'Catbox.moe'}...`);
+            await m.React('⏳');
             
             const mediaBuffer = await downloadMediaMessage(quotedMsg, 'buffer', {});
             const fileSizeMB = (mediaBuffer.length / (1024 * 1024)).toFixed(2);
             
             if (fileSizeMB > 50) {
-                return m.reply(`❌ *File Too Large*\n\nSize: ${fileSizeMB}MB\nLimit: 50MB\n\nPlease use a smaller file.`);
+                return m.reply(`❌ *File Too Large*\n\nSize: ${fileSizeMB}MB\nLimit: 50MB`);
             }
             
             let uploadUrl = '';
@@ -1014,107 +1915,23 @@ class BotRunner {
                           `Link expires: ${service === 'tmpfiles' ? '1 hour' : 'Permanent'}`;
             
             await sock.sendMessage(m.from, { text: result }, { quoted: m });
+            await m.React('✅');
+            
+            delete m.uploadData;
             
         } catch (error) {
             console.error('Upload Error:', error);
-            await m.reply(`❌ ${service} upload failed: ${error.message}`);
+            await m.reply(`❌ Upload failed: ${error.message}`);
+            await m.React('❌');
         }
     }
     
-    async analyzeMedia(m, sock) {
-        if (!m.uploadData) {
-            await m.reply('❌ Please reply to media first with .url');
-            return;
-        }
-        
-        const { quotedMsg } = m.uploadData;
-        
-        try {
-            await m.reply('📊 Analyzing media...');
-            
-            const mediaBuffer = await downloadMediaMessage(quotedMsg, 'buffer', {});
-            const fileSizeMB = (mediaBuffer.length / (1024 * 1024)).toFixed(2);
-            
-            let mediaType = 'Unknown';
-            let dimensions = 'N/A';
-            
-            if (quotedMsg.message?.imageMessage) {
-                mediaType = 'Image';
-                dimensions = `${quotedMsg.message.imageMessage.width}x${quotedMsg.message.imageMessage.height}`;
-            } else if (quotedMsg.message?.videoMessage) {
-                mediaType = 'Video';
-                dimensions = `${quotedMsg.message.videoMessage.width}x${quotedMsg.message.videoMessage.height}`;
-            } else if (quotedMsg.message?.audioMessage) {
-                mediaType = 'Audio';
-                dimensions = `${quotedMsg.message.audioMessage.seconds}s`;
-            } else if (quotedMsg.message?.documentMessage) {
-                mediaType = 'Document';
-                dimensions = quotedMsg.message.documentMessage.fileName || 'Unknown';
-            }
-            
-            const analysis = `📊 *Media Analysis*\n\n` +
-                            `📁 Type: ${mediaType}\n` +
-                            `📏 Size: ${fileSizeMB} MB\n` +
-                            `📐 Dimensions: ${dimensions}\n` +
-                            `🎯 Format: ${quotedMsg.message?.[`${mediaType.toLowerCase()}Message`]?.mimetype || 'Unknown'}\n` +
-                            `📝 Caption: ${quotedMsg.message?.[`${mediaType.toLowerCase()}Message`]?.caption || 'None'}\n\n` +
-                            `Ready for upload!`;
-            
-            await sock.sendMessage(m.from, { text: analysis }, { quoted: m });
-            
-        } catch (error) {
-            console.error('Analysis Error:', error);
-            await m.reply('❌ Failed to analyze media.');
-        }
-    }
-    
-    async handlePlayButton(m, sock) {
-        const playPlugin = pluginLoader.plugins.get('play');
-        if (playPlugin) {
-            m.body = '.play';
-            await playPlugin(m, sock);
-        } else {
-            await m.reply('❌ Music player plugin not found.');
-        }
-    }
-    
-    async handleMusicDownload(m, sock, videoId, quality) {
-        const playPlugin = pluginLoader.plugins.get('play');
-        if (playPlugin && playPlugin.downloadAndSendAudio) {
-            await playPlugin.downloadAndSendAudio(m, sock, videoId, quality);
-        } else {
-            await m.reply('❌ Music download function not available.');
-        }
-    }
-    
-    async handleMusicInfo(m, sock, videoId) {
-        const playPlugin = pluginLoader.plugins.get('play');
-        if (playPlugin && playPlugin.getVideoInfo) {
-            await playPlugin.getVideoInfo(m, sock, videoId);
-        } else {
-            await m.reply('❌ Video info function not available.');
-        }
-    }
-    
-    async handleViewButton(m, sock) {
-        const viewPlugin = pluginLoader.plugins.get('view');
-        if (viewPlugin) {
-            m.body = '.view';
-            await viewPlugin(m, sock);
-        } else {
-            await m.reply('❌ View plugin not found.');
-        }
-    }
-    
-    async handleViewDownload(m, sock) {
-        if (!m.mediaData) {
-            await m.reply('❌ No media data found.');
-            return;
-        }
-        
+    async downloadMedia(m, sock) {
         const { buffer, type, fileSize } = m.mediaData;
         
         try {
+            await m.React('⏳');
+            
             if (type === 'image') {
                 await sock.sendMessage(m.from, {
                     image: buffer,
@@ -1129,136 +1946,44 @@ class BotRunner {
                 await sock.sendMessage(m.from, {
                     audio: buffer,
                     mimetype: 'audio/mp4',
-                    ptt: false
+                    ptt: false,
+                    caption: `🎵 Downloaded via CLOUD AI\nSize: ${fileSize} MB`
                 }, { quoted: m });
             }
+            
             await m.React('✅');
+            
         } catch (error) {
             console.error('Download Error:', error);
             await m.reply('❌ Failed to download media.');
+            await m.React('❌');
         }
     }
     
-    async handleViewInfo(m, sock) {
-        if (!m.mediaData) {
-            await m.reply('❌ No media data found.');
-            return;
-        }
-        
+    async showMediaInfo(m, sock) {
         const { type, quotedMsg, fileSize } = m.mediaData;
-        let info = `📊 *Media Information*\n\n` +
-                   `Type: ${type}\n` +
-                   `Size: ${fileSize} MB\n`;
+        let info = `📊 *Media Information*\n\n`;
+        info += `• Type: ${type}\n`;
+        info += `• Size: ${fileSize} MB\n`;
         
         if (type === 'image' && quotedMsg.message?.imageMessage) {
-            info += `Dimensions: ${quotedMsg.message.imageMessage.width}x${quotedMsg.message.imageMessage.height}\n`;
-            info += `Caption: ${quotedMsg.message.imageMessage.caption || 'None'}\n`;
+            info += `• Dimensions: ${quotedMsg.message.imageMessage.width}x${quotedMsg.message.imageMessage.height}\n`;
+            info += `• Caption: ${quotedMsg.message.imageMessage.caption || 'None'}\n`;
         } else if (type === 'video' && quotedMsg.message?.videoMessage) {
-            info += `Duration: ${quotedMsg.message.videoMessage.seconds}s\n`;
-            info += `Dimensions: ${quotedMsg.message.videoMessage.width}x${quotedMsg.message.videoMessage.height}\n`;
-            info += `Caption: ${quotedMsg.message.videoMessage.caption || 'None'}\n`;
+            info += `• Duration: ${quotedMsg.message.videoMessage.seconds}s\n`;
+            info += `• Dimensions: ${quotedMsg.message.videoMessage.width}x${quotedMsg.message.videoMessage.height}\n`;
+            info += `• Caption: ${quotedMsg.message.videoMessage.caption || 'None'}\n`;
         }
         
+        info += `\n🔒 Downloaded via CLOUD AI`;
         await m.reply(info);
     }
     
-    async showPrivacyOptions(m, sock, settingType) {
-        const userId = m.sender.split('@')[0];
-        const ownerNumbers = ['254116763755', '254743982206'];
-        
-        if (!ownerNumbers.includes(userId)) {
-            await m.reply('🔒 Owner access required.');
-            return;
-        }
-        
-        const options = {
-            lastseen: ['all', 'contacts', 'none'],
-            profile: ['all', 'contacts', 'none'],
-            status: ['all', 'contacts', 'none']
+    getAutoSettings() {
+        return {
+            autoReact: this.autoReactEnabled,
+            autoStatusReact: this.autoStatusReactEnabled
         };
-        
-        const labels = {
-            all: '👁️ Everyone',
-            contacts: '📱 Contacts',
-            none: '🙈 Nobody'
-        };
-        
-        const buttons = options[settingType].map(value => ({
-            id: `btn_priv_set_${settingType}_${value}`,
-            text: labels[value] || value
-        }));
-        
-        buttons.push({ id: 'btn_menu_owner', text: '🔙 Back' });
-        
-        await sendButtons(sock, m.from, {
-            title: `🔐 ${settingType.charAt(0).toUpperCase() + settingType.slice(1)} Privacy`,
-            text: 'Select privacy level:',
-            footer: 'CLOUD AI Privacy Manager',
-            buttons: buttons
-        });
-    }
-    
-    async handleAutoReact(m, sock, enabled) {
-        const userId = m.sender.split('@')[0];
-        const ownerNumbers = ['254116763755', '254743982206'];
-        
-        if (!ownerNumbers.includes(userId)) {
-            await m.reply('🔒 Owner access required.');
-            return;
-        }
-        
-        process.env.AUTO_REACT = enabled ? 'true' : 'false';
-        await m.reply(`✅ Auto-reaction ${enabled ? 'turned ON' : 'turned OFF'}`);
-    }
-    
-    async handleBotMode(m, sock, mode) {
-        const userId = m.sender.split('@')[0];
-        const ownerNumbers = ['254116763755', '254743982206'];
-        
-        if (!ownerNumbers.includes(userId)) {
-            await m.reply('🔒 Owner access required.');
-            return;
-        }
-        
-        process.env.BOT_MODE = mode;
-        await m.reply(`✅ Bot mode set to: ${mode.toUpperCase()}`);
-    }
-
-    // ==================== HELPER FUNCTIONS ====================
-    
-    async handleBuiltinCommand(m, sock, cmd, args) {
-        switch(cmd) {
-            case 'ping':
-                const start = Date.now();
-                await m.reply(`🏓 Pong!`);
-                const latency = Date.now() - start;
-                await sock.sendMessage(m.from, { text: `⏱️ Latency: ${latency}ms` });
-                break;
-                
-            case 'menu':
-                // Handled by menu plugin
-                break;
-                
-            case 'plugins':
-            case 'pl':
-                const plugins = Array.from(pluginLoader.plugins.keys());
-                await m.reply(`📦 Loaded Plugins (${plugins.length}):\n${plugins.map(p => `• .${p}`).join('\n')}`);
-                break;
-                
-            case 'status':
-                const uptime = this.getUptime();
-                const status = `📊 *CLOUD AI Status*\n\n` +
-                              `• Session: ${this.sessionId}\n` +
-                              `• State: ${this.connectionState}\n` +
-                              `• Uptime: ${uptime}\n` +
-                              `• Reconnects: ${this.reconnectAttempts}/${this.maxReconnectAttempts}\n` +
-                              `• Last Activity: ${this.lastActivity.toLocaleTimeString()}`;
-                await m.reply(status);
-                break;
-                
-            default:
-                await m.reply(`❓ Unknown command: .${cmd}\n\nType .menu for commands`);
-        }
     }
 
     extractMessageText(message) {
@@ -1291,7 +2016,7 @@ class BotRunner {
         
         m.pushName = m.pushName || 'User';
         
-        // ========== VIEW-ONCE MESSAGE HANDLING ==========
+        // Handle view-once messages
         if (m.message?.viewOnceMessageV2?.message) {
             m.message = m.message.viewOnceMessageV2.message;
             m.isViewOnce = true;
@@ -1299,7 +2024,6 @@ class BotRunner {
             m.message = m.message.viewOnceMessage.message;
             m.isViewOnce = true;
         }
-        // ========== END VIEW-ONCE HANDLING ==========
         
         // Add reply method
         m.reply = (text, options = {}) => {
@@ -1333,15 +2057,6 @@ class BotRunner {
             return decode.user && decode.server ? `${decode.user}@${decode.server}` : jid;
         }
         return jid;
-    }
-
-    async sendAutoReaction(m, sock) {
-        const emojis = ['❤️', '😂', '😮', '😢', '👏', '🔥', '⭐', '🎉'];
-        const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-        
-        await sock.sendMessage(m.from, {
-            react: { text: randomEmoji, key: m.key }
-        }).catch(() => {});
     }
 
     getUptime() {
