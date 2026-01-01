@@ -612,6 +612,23 @@ class BotRunner {
             return;
         }
         
+        // ==================== ADDITIONAL BUTTON HANDLERS ====================
+        if (normalizedId === 'btn_music_play') {
+            global.userStates[m.sender] = { action: 'play_music' };
+            await sock.sendMessage(m.from, { text: '🎵 *Send the song name or YouTube link*' }, { quoted: m });
+            return;
+        }
+        
+        if (normalizedId === 'btn_group_tagall') {
+            await this.handleTagallButton(m, sock);
+            return;
+        }
+        
+        if (normalizedId === 'btn_tools_vcf') {
+            await this.handleVcfButton(m, sock);
+            return;
+        }
+        
         // ==================== DEFAULT ====================
         await m.reply(`❌ Button action "${buttonId}" not implemented yet.\n\nTry using commands instead:\n• .ping\n• .menu\n• .owner`);
     }
@@ -1423,21 +1440,3 @@ module.exports = {
     getActiveBots,
     initializeBotSystem
 };
-
-
-if (normalizedId === 'btn_music_play') {
-    global.userStates[m.sender] = { action: 'play_music' }
-    await sock.sendMessage(m.chat, { text: '🎵 *Send the song name or YouTube link*' }, { quoted: m })
-    return
-}
-
-if (normalizedId === 'btn_group_tagall') {
-    await this.executeCommand(m, sock, 'tagall')
-    return
-}
-
-if (normalizedId === 'btn_tools_vcf') {
-    global.userStates[m.sender] = { action: 'export_vcf' }
-    await sock.sendMessage(m.chat, { text: '📇 *Reply with:* \n1️⃣ Group contacts\n2️⃣ Private contacts' }, { quoted: m })
-    return
-}
